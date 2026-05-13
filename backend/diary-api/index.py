@@ -60,6 +60,14 @@ def handler(event: dict, context) -> dict:
         return handle_get_students(params)
     if action == "add_student":
         return handle_add_student(body)
+    if action == "delete_student":
+        return handle_delete_student(body)
+    if action == "get_parents":
+        return handle_get_parents(params)
+    if action == "add_parent":
+        return handle_add_parent(body)
+    if action == "delete_parent":
+        return handle_delete_parent(body)
     if action == "get_schedule":
         return handle_get_schedule(params)
     if action == "add_schedule":
@@ -158,12 +166,12 @@ def handle_get_students(params):
     cur = conn.cursor()
     if class_id:
         cur.execute(
-            f"SELECT s.*, c.name as class_name FROM {SCHEMA}.students s LEFT JOIN {SCHEMA}.classes c ON c.id = s.class_id WHERE s.class_id = %s ORDER BY s.full_name",
+            f"SELECT s.*, c.name as class_name FROM {SCHEMA}.students s LEFT JOIN {SCHEMA}.classes c ON c.id = s.class_id WHERE s.class_id = %s AND s.is_archived = false ORDER BY s.full_name",
             (class_id,)
         )
     else:
         cur.execute(
-            f"SELECT s.*, c.name as class_name FROM {SCHEMA}.students s LEFT JOIN {SCHEMA}.classes c ON c.id = s.class_id ORDER BY c.grade, c.letter, s.full_name"
+            f"SELECT s.*, c.name as class_name FROM {SCHEMA}.students s LEFT JOIN {SCHEMA}.classes c ON c.id = s.class_id WHERE s.is_archived = false ORDER BY c.grade, c.letter, s.full_name"
         )
     rows = cur.fetchall()
     conn.close()
@@ -188,6 +196,87 @@ def handle_add_student(body):
     conn.commit()
     conn.close()
     return ok(dict(row), 201)
+
+
+def handle_delete_student(body):
+    student_id = body.get("student_id")
+    if not student_id:
+        return err("student_id required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"UPDATE {SCHEMA}.students SET is_archived = true WHERE id = %s", (student_id,))
+    conn.commit()
+    conn.close()
+    return ok({"ok": True})
+
+
+# ── Parents ───────────────────────────────────────────────
+def handle_get_parents(params):
+    class_id = params.get("class_id")
+    conn = get_conn()
+    cur = conn.cursor()
+    if class_id:
+        cur.execute(
+            f"""SELECT u.id, u.login, u.display_name, s.full_name as child, s.id as child_id
+                FROM {SCHEMA}.users u
+                JOIN {SCHEMA}.parent_students ps ON ps.parent_id = u.id
+                JOIN {SCHEMA}.students s ON s.id = ps.student_id
+                WHERE s.class_id = %s AND u.role = 'parent' AND u.is_archived = false AND s.is_archived = false
+                ORDER BY s.full_name""",
+            (class_id,)
+        )
+    else:
+        cur.execute(
+            f"""SELECT u.id, u.login, u.display_name, s.full_name as child, s.id as child_id
+                FROM {SCHEMA}.users u
+                JOIN {SCHEMA}.parent_students ps ON ps.parent_id = u.id
+                JOIN {SCHEMA}.students s ON s.id = ps.student_id
+                WHERE u.role = 'parent' AND u.is_archived = false AND s.is_archived = false
+                ORDER BY s.full_name"""
+        )
+    rows = cur.fetchall()
+    conn.close()
+    return ok(list(rows))
+
+
+def handle_add_parent(body):
+    login = (body.get("login") or "").strip()
+    password = (body.get("password") or "").strip()
+    display_name = (body.get("display_name") or "").strip()
+    student_id = body.get("student_id")
+    if not login or not password or not student_id:
+        return err("Укажите логин, пароль и ученика")
+    conn = get_conn()
+    cur = conn.cursor()
+    # Проверяем уникальность логина
+    cur.execute(f"SELECT id FROM {SCHEMA}.users WHERE login = %s", (login,))
+    if cur.fetchone():
+        conn.close()
+        return err("Логин уже занят")
+    cur.execute(
+        f"INSERT INTO {SCHEMA}.users (login, password_hash, role, display_name) VALUES (%s, %s, 'parent', %s) RETURNING id, login, display_name, role",
+        (login, password, display_name or login)
+    )
+    user = cur.fetchone()
+    cur.execute(
+        f"INSERT INTO {SCHEMA}.parent_students (parent_id, student_id) VALUES (%s, %s)",
+        (user["id"], student_id)
+    )
+    conn.commit()
+    conn.close()
+    return ok(dict(user), 201)
+
+
+def handle_delete_parent(body):
+    parent_id = body.get("parent_id")
+    if not parent_id:
+        return err("parent_id required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"UPDATE {SCHEMA}.users SET is_archived = true WHERE id = %s AND role = 'parent'", (parent_id,))
+    conn.commit()
+    conn.close()
+    return ok({"ok": True})
 
 
 # ── Schedule ──────────────────────────────────────────────

@@ -15,7 +15,7 @@ async function api(action: string, method = "GET", body?: object) {
 
 // ─── Types ────────────────────────────────────────────────
 type Role = "teacher" | "parent";
-type Tab = "classes" | "schedule" | "homework" | "grades" | "files" | "recommendations";
+type Tab = "classes" | "parents" | "schedule" | "homework" | "grades" | "files" | "recommendations";
 
 interface User { id: number; login: string; role: Role; display_name: string; child?: string; child_id?: number; class_id?: number; }
 interface SchoolClass { id: number; name: string; grade: number; letter: string; display_name?: string; }
@@ -368,17 +368,30 @@ export default function Index() {
                     <span>{n.emoji}</span> {n.label}
                   </button>
                 ))}
-                {/* Students tab (teacher only) */}
+                {/* Teacher-only tabs */}
                 {user.role === "teacher" && (
-                  <button onClick={() => goTab("classes")}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all"
-                    style={{
-                      background: tab === "classes" ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
-                      color: tab === "classes" ? "white" : "#3D1520",
-                      border: "1.5px solid rgba(139,26,47,0.1)",
-                    }}>
-                    <span>👥</span> Ученики
-                  </button>
+                  <>
+                    <button onClick={() => goTab("classes")}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all"
+                      style={{
+                        background: tab === "classes" ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+                        color: tab === "classes" ? "white" : "#3D1520",
+                        border: "1.5px solid rgba(139,26,47,0.1)",
+                        boxShadow: tab === "classes" ? "0 4px 12px rgba(139,26,47,0.2)" : "none",
+                      }}>
+                      <span>👥</span> Ученики
+                    </button>
+                    <button onClick={() => goTab("parents")}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all"
+                      style={{
+                        background: tab === "parents" ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+                        color: tab === "parents" ? "white" : "#3D1520",
+                        border: "1.5px solid rgba(139,26,47,0.1)",
+                        boxShadow: tab === "parents" ? "0 4px 12px rgba(139,26,47,0.2)" : "none",
+                      }}>
+                      <span>👨‍👩‍👧</span> Родители
+                    </button>
+                  </>
                 )}
               </div>
 
@@ -390,6 +403,7 @@ export default function Index() {
                 {tab === "files" && <FilesTab cls={selectedClass} />}
                 {tab === "recommendations" && <RecsTab cls={selectedClass} user={user} />}
                 {tab === "classes" && user.role === "teacher" && <StudentsTab cls={selectedClass} />}
+                {tab === "parents" && user.role === "teacher" && <ParentsTab cls={selectedClass} />}
               </div>
             </>
           )}
@@ -406,10 +420,16 @@ export default function Index() {
             </button>
           ))}
           {user.role === "teacher" && (
-            <button onClick={() => goTab("classes")} className="flex flex-col items-center gap-0.5 px-1" style={{ color: tab === "classes" ? "#8B1A2F" : "#9B6A7A" }}>
-              <span className="text-xl">👥</span>
-              <span className="text-xs">Ученики</span>
-            </button>
+            <>
+              <button onClick={() => goTab("classes")} className="flex flex-col items-center gap-0.5 px-1" style={{ color: tab === "classes" ? "#8B1A2F" : "#9B6A7A" }}>
+                <span className="text-xl">👥</span>
+                <span className="text-xs">Ученики</span>
+              </button>
+              <button onClick={() => goTab("parents")} className="flex flex-col items-center gap-0.5 px-1" style={{ color: tab === "parents" ? "#8B1A2F" : "#9B6A7A" }}>
+                <span className="text-xl">👨‍👩‍👧</span>
+                <span className="text-xs">Родители</span>
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -544,6 +564,12 @@ function StudentsTab({ cls }: { cls: SchoolClass }) {
 
   useEffect(() => { load(); }, [load]);
 
+  const removeStudent = async (id: number) => {
+    if (!confirm("Удалить ученика? Это действие нельзя отменить.")) return;
+    await api("delete_student", "POST", { student_id: id });
+    load();
+  };
+
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -566,7 +592,10 @@ function StudentsTab({ cls }: { cls: SchoolClass }) {
               <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0" style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)", color: "white" }}>
                 {s.full_name.charAt(0)}
               </div>
-              <p className="font-medium text-sm" style={{ color: "#3D1520" }}>{s.full_name}</p>
+              <p className="font-medium text-sm flex-1" style={{ color: "#3D1520" }}>{s.full_name}</p>
+              <button onClick={() => removeStudent(s.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
+                <Icon name="Trash2" size={13} className="text-red-400" />
+              </button>
             </div>
           ))}
         </div>
@@ -870,6 +899,105 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
             </Modal>
           )}
         </>
+      )}
+    </div>
+  );
+}
+
+// ─── Parents Tab ──────────────────────────────────────────
+interface Parent { id: number; login: string; display_name: string; child: string; child_id: number; }
+
+function ParentsTab({ cls }: { cls: SchoolClass }) {
+  const [parents, setParents] = useState<Parent[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ login: "", password: "", display_name: "", student_id: "" });
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const [p, s] = await Promise.all([
+      api(`get_parents&class_id=${cls.id}`),
+      api(`get_students&class_id=${cls.id}`),
+    ]);
+    if (Array.isArray(p)) setParents(p);
+    if (Array.isArray(s)) setStudents(s);
+    setLoading(false);
+  }, [cls.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const removeParent = async (id: number) => {
+    if (!confirm("Удалить профиль родителя? Родитель потеряет доступ к дневнику.")) return;
+    await api("delete_parent", "POST", { parent_id: id });
+    load();
+  };
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaveError(""); setSaving(true);
+    const res = await api("add_parent", "POST", { ...form, student_id: Number(form.student_id) });
+    setSaving(false);
+    if (res.error) { setSaveError(res.error); return; }
+    setShowAdd(false);
+    setForm({ login: "", password: "", display_name: "", student_id: "" });
+    load();
+  };
+
+  return (
+    <div>
+      <SectionTitle emoji="👨‍👩‍👧" title={`Родители · ${cls.display_name || cls.name}`} sub={`${parents.length} профилей`} />
+      {loading ? <Loader /> : (
+        <div className="space-y-2">
+          {parents.length === 0 && <Empty text="Родители не добавлены" />}
+          {parents.map((p, i) => (
+            <div key={p.id} className="flex items-center gap-3 px-4 py-3 rounded-2xl animate-slide-up card-hover"
+              style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.05}s`, opacity: 0 }}>
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm shrink-0 text-lg" style={{ background: "#F5E0E5" }}>👨‍👩‍👧</div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm" style={{ color: "#3D1520" }}>{p.display_name || p.login}</p>
+                <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>
+                  Логин: <b style={{ color: "#8B1A2F" }}>{p.login}</b> · Ученик: {p.child}
+                </p>
+              </div>
+              <button onClick={() => removeParent(p.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
+                <Icon name="Trash2" size={13} className="text-red-400" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <AddBtn label="Добавить родителя" onClick={() => { setShowAdd(true); setSaveError(""); }} />
+
+      {showAdd && (
+        <Modal title="Новый профиль родителя" onClose={() => setShowAdd(false)}>
+          <form onSubmit={save} className="space-y-3">
+            <Field label="Ученик">
+              <Select value={form.student_id} onChange={e => setForm(f => ({ ...f, student_id: e.target.value }))} required>
+                <option value="">Выберите ученика</option>
+                {students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Имя родителя">
+              <Input value={form.display_name} onChange={e => setForm(f => ({ ...f, display_name: e.target.value }))} placeholder="Мария Петрова" />
+            </Field>
+            <Field label="Логин (для входа)">
+              <Input value={form.login} onChange={e => setForm(f => ({ ...f, login: e.target.value }))} placeholder="petrov_mama" required />
+            </Field>
+            <Field label="Пароль">
+              <Input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="Минимум 6 символов" required />
+            </Field>
+            {saveError && (
+              <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: "rgba(244,67,54,0.06)", border: "1px solid rgba(244,67,54,0.2)" }}>
+                <Icon name="AlertCircle" size={14} className="text-red-500 shrink-0" />
+                <span className="text-xs text-red-600">{saveError}</span>
+              </div>
+            )}
+            <SaveBtn loading={saving} />
+          </form>
+        </Modal>
       )}
     </div>
   );
