@@ -1,0 +1,46 @@
+{
+  "tests": [
+    {
+      "name": "Login parent1",
+      "method": "POST",
+      "path": "/login",
+      "body": {"login": "parent1", "password": "parent1pass"},
+      "expectedStatus": 200,
+      "expectedBody": {"role": "parent"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Login teacher",
+      "method": "POST",
+      "path": "/login",
+      "body": {"login": "Анна Сергеевна", "password": "teacher2024"},
+      "expectedStatus": 200,
+      "expectedBody": {"role": "teacher"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get schedule",
+      "method": "GET",
+      "path": "/schedule?day=Понедельник",
+      "expectedStatus": 200,
+      "expectedBody": [],
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get homework",
+      "method": "GET",
+      "path": "/homework",
+      "expectedStatus": 200,
+      "expectedBody": [],
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get students",
+      "method": "GET",
+      "path": "/students",
+      "expectedStatus": 200,
+      "expectedBody": [],
+      "bodyMatcher": "partial"
+    }
+  ]
+}
