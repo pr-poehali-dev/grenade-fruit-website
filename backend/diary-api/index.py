@@ -72,6 +72,20 @@ def handler(event: dict, context) -> dict:
         return handle_get_modules()
     if action == "update_module":
         return handle_update_module(body)
+    if action == "get_breaks":
+        return handle_get_breaks(params)
+    if action == "add_break":
+        return handle_add_break(body)
+    if action == "update_break":
+        return handle_update_break(body)
+    if action == "delete_break":
+        return handle_delete_break(body)
+    if action == "get_holidays":
+        return handle_get_holidays(params)
+    if action == "add_holiday":
+        return handle_add_holiday(body)
+    if action == "delete_holiday":
+        return handle_delete_holiday(body)
     if action == "get_schedule":
         return handle_get_schedule(params)
     if action == "add_schedule":
@@ -389,6 +403,115 @@ def handle_update_module(body):
     return ok(dict(row))
 
 
+# ── Breaks (каникулы) ─────────────────────────────────────
+def handle_get_breaks(params):
+    year = params.get("school_year", "2025-2026")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"SELECT * FROM {SCHEMA}.breaks WHERE school_year = %s ORDER BY date_start", (year,))
+    rows = cur.fetchall()
+    conn.close()
+    return ok(list(rows))
+
+
+def handle_add_break(body):
+    name = (body.get("name") or "").strip()
+    date_start = (body.get("date_start") or "").strip()
+    date_end = (body.get("date_end") or "").strip()
+    year = body.get("school_year", "2025-2026")
+    if not name or not date_start or not date_end:
+        return err("name, date_start, date_end required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"INSERT INTO {SCHEMA}.breaks (name, date_start, date_end, school_year) VALUES (%s, %s, %s, %s) RETURNING *",
+        (name, date_start, date_end, year)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    return ok(dict(row), 201)
+
+
+def handle_update_break(body):
+    bid = body.get("id")
+    name = (body.get("name") or "").strip()
+    date_start = (body.get("date_start") or "").strip()
+    date_end = (body.get("date_end") or "").strip()
+    if not bid or not name or not date_start or not date_end:
+        return err("id, name, date_start, date_end required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"UPDATE {SCHEMA}.breaks SET name = %s, date_start = %s, date_end = %s WHERE id = %s RETURNING *",
+        (name, date_start, date_end, bid)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return err("Не найдено", 404)
+    return ok(dict(row))
+
+
+def handle_delete_break(body):
+    bid = body.get("id")
+    if not bid:
+        return err("id required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"UPDATE {SCHEMA}.breaks SET school_year = CONCAT('archived_', school_year) WHERE id = %s", (bid,))
+    conn.commit()
+    conn.close()
+    return ok({"ok": True})
+
+
+# ── Holidays (праздники) ──────────────────────────────────
+def handle_get_holidays(params):
+    year = params.get("school_year", "2025-2026")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"SELECT * FROM {SCHEMA}.holidays WHERE school_year = %s ORDER BY holiday_date", (year,))
+    rows = cur.fetchall()
+    conn.close()
+    return ok(list(rows))
+
+
+def handle_add_holiday(body):
+    name = (body.get("name") or "").strip()
+    holiday_date = (body.get("holiday_date") or "").strip()
+    year = body.get("school_year", "2025-2026")
+    if not name or not holiday_date:
+        return err("name, holiday_date required")
+    conn = get_conn()
+    cur = conn.cursor()
+    # Проверяем уникальность даты
+    cur.execute(f"SELECT id FROM {SCHEMA}.holidays WHERE holiday_date = %s AND school_year = %s", (holiday_date, year))
+    if cur.fetchone():
+        conn.close()
+        return err("Эта дата уже добавлена")
+    cur.execute(
+        f"INSERT INTO {SCHEMA}.holidays (name, holiday_date, school_year) VALUES (%s, %s, %s) RETURNING *",
+        (name, holiday_date, year)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    return ok(dict(row), 201)
+
+
+def handle_delete_holiday(body):
+    hid = body.get("id")
+    if not hid:
+        return err("id required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"UPDATE {SCHEMA}.holidays SET school_year = CONCAT('archived_', school_year) WHERE id = %s", (hid,))
+    conn.commit()
+    conn.close()
+    return ok({"ok": True})
+
+
 # ── Schedule by dates ─────────────────────────────────────
 def handle_get_schedule_dates(params):
     """Расписание на конкретные даты для модуля и класса."""
@@ -462,6 +585,18 @@ def handle_save_module_schedule(body):
         (class_id, module_id)
     )
 
+    # Собираем все праздники и каникулы — исключаем эти дни
+    cur.execute(f"SELECT holiday_date::text FROM {SCHEMA}.holidays WHERE school_year = '2025-2026'")
+    excluded = {r["holiday_date"] for r in cur.fetchall()}
+    cur.execute(f"SELECT date_start, date_end FROM {SCHEMA}.breaks WHERE school_year = '2025-2026'")
+    for br in cur.fetchall():
+        bs = br["date_start"] if isinstance(br["date_start"], datetime.date) else datetime.date.fromisoformat(str(br["date_start"]))
+        be = br["date_end"] if isinstance(br["date_end"], datetime.date) else datetime.date.fromisoformat(str(br["date_end"]))
+        d = bs
+        while d <= be:
+            excluded.add(d.isoformat())
+            d += datetime.timedelta(days=1)
+
     inserted = 0
     current = date_start
     if isinstance(current, str):
@@ -471,7 +606,10 @@ def handle_save_module_schedule(body):
 
     while current <= date_end:
         weekday = current.weekday()
-        # Находим название дня
+        # Пропускаем выходные, праздники и каникулы
+        if current.isoformat() in excluded or weekday >= 5:
+            current += datetime.timedelta(days=1)
+            continue
         day_name = None
         for name, num in day_map.items():
             if num == weekday:

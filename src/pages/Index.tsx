@@ -23,6 +23,8 @@ interface Student { id: number; full_name: string; class_id: number; class_name?
 interface ScheduleItem { id: number; day_of_week: string; time_slot: string; subject: string; teacher_name: string; room: string; class_id: number; sort_order: number; }
 interface Module { id: number; name: string; number: number; date_start: string; date_end: string; school_year: string; }
 interface ScheduleDate { id: number; lesson_date: string; day_of_week: string; time_slot: string; subject: string; teacher_name: string; room: string; sort_order: number; }
+interface Break { id: number; name: string; date_start: string; date_end: string; school_year: string; }
+interface Holiday { id: number; name: string; holiday_date: string; school_year: string; }
 interface Homework { id: number; subject: string; task: string; due_date: string; class_id: number; }
 interface Grade { id: number; student_id: number; subject: string; grade: number; comment: string; grade_date: string; student_name: string; }
 interface FileItem { id: number; name: string; subject: string; teacher_name: string; upload_date: string; size_label: string; s3_key: string; }
@@ -581,15 +583,39 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const updateSlot = (d: string, i: number, field: keyof LessonSlot, val: string) =>
     setWeeklyTemplate(t => ({ ...t, [d]: t[d].map((s, idx) => idx === i ? { ...s, [field]: val } : s) }));
 
-  // Module editor
+  // Module editor + breaks + holidays
   const [showModuleEditor, setShowModuleEditor] = useState(false);
+  const [editorTab, setEditorTab] = useState<"modules" | "breaks" | "holidays">("modules");
   const [editingModules, setEditingModules] = useState<Module[]>([]);
+  const [breaks, setBreaks] = useState<Break[]>([]);
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [savingModuleEdit, setSavingModuleEdit] = useState(false);
+  const [newBreak, setNewBreak] = useState({ name: "", date_start: "", date_end: "" });
+  const [newHoliday, setNewHoliday] = useState({ name: "", holiday_date: "" });
+  const [savingBreak, setSavingBreak] = useState(false);
+  const [savingHoliday, setSavingHoliday] = useState(false);
+
+  const loadBreaksHolidays = async () => {
+    const [b, h] = await Promise.all([api("get_breaks"), api("get_holidays")]);
+    if (Array.isArray(b)) setBreaks(b);
+    if (Array.isArray(h)) setHolidays(h);
+  };
 
   const openModuleEditor = () => {
     setEditingModules(modules.map(m => ({ ...m })));
+    setEditorTab("modules");
+    loadBreaksHolidays();
     setShowModuleEditor(true);
   };
+
+  // Для подсветки в календаре
+  const breakDates = new Set<string>();
+  breaks.forEach(b => {
+    const s = new Date(b.date_start), e = new Date(b.date_end);
+    const d = new Date(s);
+    while (d <= e) { breakDates.add(d.toISOString().split("T")[0]); d.setDate(d.getDate() + 1); }
+  });
+  const holidayDates = new Set(holidays.map(h => h.holiday_date));
 
   const saveAllModules = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -606,6 +632,34 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
     setSavingModuleEdit(false);
     setShowModuleEditor(false);
   };
+
+  const addBreak = async (e: React.FormEvent) => {
+    e.preventDefault(); setSavingBreak(true);
+    await api("add_break", "POST", newBreak);
+    setNewBreak({ name: "", date_start: "", date_end: "" });
+    setSavingBreak(false);
+    loadBreaksHolidays();
+  };
+
+  const removeBreak = async (id: number) => {
+    await api("delete_break", "POST", { id });
+    loadBreaksHolidays();
+  };
+
+  const addHoliday = async (e: React.FormEvent) => {
+    e.preventDefault(); setSavingHoliday(true);
+    await api("add_holiday", "POST", newHoliday);
+    setNewHoliday({ name: "", holiday_date: "" });
+    setSavingHoliday(false);
+    loadBreaksHolidays();
+  };
+
+  const removeHoliday = async (id: number) => {
+    await api("delete_holiday", "POST", { id });
+    loadBreaksHolidays();
+  };
+
+  useEffect(() => { loadBreaksHolidays(); }, []);
 
   return (
     <div>
@@ -706,6 +760,29 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                   {getAllDatesInModule(selectedModule).map(date => {
                     const lessons = getLessonsForDate(date);
                     const active = selectedDate === date;
+                    const isBreak = breakDates.has(date);
+                    const isHoliday = holidayDates.has(date);
+                    const holiday = holidays.find(h => h.holiday_date === date);
+                    const isSpecial = isBreak || isHoliday;
+
+                    if (isSpecial) {
+                      return (
+                        <div key={date} className="flex items-center gap-3 p-3 rounded-2xl"
+                          style={{ background: isBreak ? "rgba(212,168,67,0.1)" : "rgba(76,175,80,0.08)", border: `1.5px solid ${isBreak ? "rgba(212,168,67,0.3)" : "rgba(76,175,80,0.25)"}` }}>
+                          <div className="w-12 text-center shrink-0">
+                            <p className="text-lg font-bold leading-none" style={{ color: isBreak ? "#7A5700" : "#2E7D32", fontFamily: "Cormorant, serif" }}>{new Date(date).getDate()}</p>
+                            <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{new Date(date).toLocaleDateString("ru-RU", { month: "short" })}</p>
+                          </div>
+                          <div className="flex-1">
+                            <p className="text-xs font-medium" style={{ color: "#9B6A7A" }}>{formatDay(date)}</p>
+                            <p className="text-sm font-medium" style={{ color: isBreak ? "#7A5700" : "#2E7D32" }}>
+                              {isBreak ? "🏖" : "🎉"} {isHoliday ? holiday?.name : "Каникулы"}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    }
+
                     return (
                       <div key={date}>
                         <button
@@ -838,50 +915,112 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
       {showModuleEditor && (
         <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setShowModuleEditor(false)}>
           <div className="w-full max-w-lg rounded-3xl p-6 shadow-2xl my-4" style={{ background: "white" }} onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <h3 className="text-2xl font-bold" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif" }}>Учебные модули</h3>
-                <p className="text-sm mt-0.5" style={{ color: "#9B6A7A" }}>Редактируйте названия и даты</p>
-              </div>
+            {/* Header */}
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-2xl font-bold" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif" }}>Учебный год</h3>
               <button onClick={() => setShowModuleEditor(false)} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100">
                 <Icon name="X" size={16} style={{ color: "#9B6A7A" }} />
               </button>
             </div>
-            <form onSubmit={saveAllModules} className="space-y-3">
-              {editingModules.map((m, idx) => (
-                <div key={m.id} className="p-4 rounded-2xl" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.1)" }}>
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
-                      style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)" }}>{m.number}</span>
-                    <Input
-                      value={m.name}
-                      onChange={e => setEditingModules(ms => ms.map((x, i) => i === idx ? { ...x, name: e.target.value } : x))}
-                      placeholder="Название модуля"
-                      required
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <Field label="Начало">
-                      <Input
-                        type="date"
-                        value={m.date_start}
-                        onChange={e => setEditingModules(ms => ms.map((x, i) => i === idx ? { ...x, date_start: e.target.value } : x))}
-                        required
-                      />
-                    </Field>
-                    <Field label="Конец">
-                      <Input
-                        type="date"
-                        value={m.date_end}
-                        onChange={e => setEditingModules(ms => ms.map((x, i) => i === idx ? { ...x, date_end: e.target.value } : x))}
-                        required
-                      />
-                    </Field>
-                  </div>
-                </div>
+
+            {/* Tabs */}
+            <div className="flex rounded-xl p-1 mb-5" style={{ background: "#F5E0E5" }}>
+              {([["modules", "📅 Модули"], ["breaks", "🏖 Каникулы"], ["holidays", "🎉 Праздники"]] as ["modules" | "breaks" | "holidays", string][]).map(([t, label]) => (
+                <button key={t} onClick={() => setEditorTab(t)}
+                  className="flex-1 py-2 rounded-lg text-xs font-medium transition-all"
+                  style={{ background: editorTab === t ? "#8B1A2F" : "transparent", color: editorTab === t ? "white" : "#8B1A2F" }}>
+                  {label}
+                </button>
               ))}
-              <SaveBtn label={savingModuleEdit ? "Сохраняем..." : "Сохранить все модули"} loading={savingModuleEdit} />
-            </form>
+            </div>
+
+            {/* Tab: Modules */}
+            {editorTab === "modules" && (
+              <form onSubmit={saveAllModules} className="space-y-3">
+                {editingModules.map((m, idx) => (
+                  <div key={m.id} className="p-3 rounded-2xl" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.1)" }}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                        style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)" }}>{m.number}</span>
+                      <Input value={m.name}
+                        onChange={e => setEditingModules(ms => ms.map((x, i) => i === idx ? { ...x, name: e.target.value } : x))}
+                        placeholder="Название модуля" required />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Field label="Начало">
+                        <Input type="date" value={m.date_start}
+                          onChange={e => setEditingModules(ms => ms.map((x, i) => i === idx ? { ...x, date_start: e.target.value } : x))} required />
+                      </Field>
+                      <Field label="Конец">
+                        <Input type="date" value={m.date_end}
+                          onChange={e => setEditingModules(ms => ms.map((x, i) => i === idx ? { ...x, date_end: e.target.value } : x))} required />
+                      </Field>
+                    </div>
+                  </div>
+                ))}
+                <SaveBtn label={savingModuleEdit ? "Сохраняем..." : "Сохранить все модули"} loading={savingModuleEdit} />
+              </form>
+            )}
+
+            {/* Tab: Breaks */}
+            {editorTab === "breaks" && (
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  {breaks.length === 0 && <Empty text="Каникулы не добавлены" />}
+                  {breaks.map(b => (
+                    <div key={b.id} className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.1)" }}>
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold" style={{ color: "#3D1520" }}>{b.name}</p>
+                        <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>
+                          {new Date(b.date_start).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })} — {new Date(b.date_end).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
+                        </p>
+                      </div>
+                      <button onClick={() => removeBreak(b.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
+                        <Icon name="Trash2" size={13} className="text-red-400" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <form onSubmit={addBreak} className="p-3 rounded-xl space-y-2" style={{ background: "#FDF6EE", border: "1.5px dashed rgba(139,26,47,0.25)" }}>
+                  <p className="text-xs font-semibold" style={{ color: "#8B1A2F" }}>+ Добавить каникулы</p>
+                  <Input value={newBreak.name} onChange={e => setNewBreak(b => ({ ...b, name: e.target.value }))} placeholder="Осенние каникулы" required />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Начало"><Input type="date" value={newBreak.date_start} onChange={e => setNewBreak(b => ({ ...b, date_start: e.target.value }))} required /></Field>
+                    <Field label="Конец"><Input type="date" value={newBreak.date_end} onChange={e => setNewBreak(b => ({ ...b, date_end: e.target.value }))} required /></Field>
+                  </div>
+                  <SaveBtn label={savingBreak ? "Сохраняем..." : "Добавить"} loading={savingBreak} />
+                </form>
+              </div>
+            )}
+
+            {/* Tab: Holidays */}
+            {editorTab === "holidays" && (
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  {holidays.length === 0 && <Empty text="Праздники не добавлены" />}
+                  {holidays.map(h => (
+                    <div key={h.id} className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.1)" }}>
+                      <span className="text-lg shrink-0">🎉</span>
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold" style={{ color: "#3D1520" }}>{h.name}</p>
+                        <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>
+                          {new Date(h.holiday_date).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}
+                        </p>
+                      </div>
+                      <button onClick={() => removeHoliday(h.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
+                        <Icon name="Trash2" size={13} className="text-red-400" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <form onSubmit={addHoliday} className="p-3 rounded-xl space-y-2" style={{ background: "#FDF6EE", border: "1.5px dashed rgba(139,26,47,0.25)" }}>
+                  <p className="text-xs font-semibold" style={{ color: "#8B1A2F" }}>+ Добавить праздник</p>
+                  <Input value={newHoliday.name} onChange={e => setNewHoliday(h => ({ ...h, name: e.target.value }))} placeholder="День Победы" required />
+                  <Field label="Дата"><Input type="date" value={newHoliday.holiday_date} onChange={e => setNewHoliday(h => ({ ...h, holiday_date: e.target.value }))} required /></Field>
+                  <SaveBtn label={savingHoliday ? "Сохраняем..." : "Добавить"} loading={savingHoliday} />
+                </form>
+              </div>
+            )}
           </div>
         </div>
       )}
