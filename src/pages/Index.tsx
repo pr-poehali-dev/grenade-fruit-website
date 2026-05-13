@@ -116,7 +116,7 @@ function SaveBtn({ label = "Сохранить", loading }: { label?: string; lo
   );
 }
 
-const DAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
+const DAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница"];
 const NOTIF_EMOJI: Record<string, string> = { grade: "⭐", homework: "📚", recommendation: "💬", file: "📎" };
 
 // ─── Login ────────────────────────────────────────────────
