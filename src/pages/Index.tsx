@@ -25,6 +25,7 @@ interface Module { id: number; name: string; number: number; date_start: string;
 interface ScheduleDate { id: number; lesson_date: string; day_of_week: string; time_slot: string; subject: string; teacher_name: string; room: string; sort_order: number; }
 interface Break { id: number; name: string; date_start: string; date_end: string; school_year: string; }
 interface Holiday { id: number; name: string; holiday_date: string; school_year: string; }
+interface Trip { id: number; class_id: number; name: string; description: string; trip_date: string; date_end: string; }
 interface Homework { id: number; subject: string; task: string; due_date: string; class_id: number; }
 interface Grade { id: number; student_id: number; subject: string; grade: number; comment: string; grade_date: string; student_name: string; }
 interface FileItem { id: number; name: string; subject: string; teacher_name: string; upload_date: string; size_label: string; s3_key: string; }
@@ -583,22 +584,29 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const updateSlot = (d: string, i: number, field: keyof LessonSlot, val: string) =>
     setWeeklyTemplate(t => ({ ...t, [d]: t[d].map((s, idx) => idx === i ? { ...s, [field]: val } : s) }));
 
-  // Module editor + breaks + holidays
+  // Module editor + breaks + holidays + trips
   const [showModuleEditor, setShowModuleEditor] = useState(false);
-  const [editorTab, setEditorTab] = useState<"modules" | "breaks" | "holidays">("modules");
+  const [editorTab, setEditorTab] = useState<"modules" | "breaks" | "holidays" | "trips">("modules");
   const [editingModules, setEditingModules] = useState<Module[]>([]);
   const [breaks, setBreaks] = useState<Break[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [trips, setTrips] = useState<Trip[]>([]);
   const [savingModuleEdit, setSavingModuleEdit] = useState(false);
   const [newBreak, setNewBreak] = useState({ name: "", date_start: "", date_end: "" });
   const [newHoliday, setNewHoliday] = useState({ name: "", holiday_date: "" });
+  const [newTrip, setNewTrip] = useState({ name: "", description: "", trip_date: "", date_end: "" });
   const [savingBreak, setSavingBreak] = useState(false);
   const [savingHoliday, setSavingHoliday] = useState(false);
+  const [savingTrip, setSavingTrip] = useState(false);
 
   const loadBreaksHolidays = async () => {
-    const [b, h] = await Promise.all([api("get_breaks"), api("get_holidays")]);
+    const [b, h, t] = await Promise.all([
+      api("get_breaks"), api("get_holidays"),
+      api(`get_trips&class_id=${cls.id}`),
+    ]);
     if (Array.isArray(b)) setBreaks(b);
     if (Array.isArray(h)) setHolidays(h);
+    if (Array.isArray(t)) setTrips(t);
   };
 
   const openModuleEditor = () => {
@@ -616,6 +624,12 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
     while (d <= e) { breakDates.add(d.toISOString().split("T")[0]); d.setDate(d.getDate() + 1); }
   });
   const holidayDates = new Set(holidays.map(h => h.holiday_date));
+  const tripDates = new Set<string>();
+  trips.forEach(t => {
+    const s = new Date(t.trip_date), e = new Date(t.date_end || t.trip_date);
+    const d = new Date(s);
+    while (d <= e) { tripDates.add(d.toISOString().split("T")[0]); d.setDate(d.getDate() + 1); }
+  });
 
   const saveAllModules = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -656,6 +670,19 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   const removeHoliday = async (id: number) => {
     await api("delete_holiday", "POST", { id });
+    loadBreaksHolidays();
+  };
+
+  const addTrip = async (e: React.FormEvent) => {
+    e.preventDefault(); setSavingTrip(true);
+    await api("add_trip", "POST", { ...newTrip, class_id: cls.id, date_end: newTrip.date_end || newTrip.trip_date });
+    setNewTrip({ name: "", description: "", trip_date: "", date_end: "" });
+    setSavingTrip(false);
+    loadBreaksHolidays();
+  };
+
+  const removeTrip = async (id: number) => {
+    await api("delete_trip", "POST", { id });
     loadBreaksHolidays();
   };
 
@@ -762,7 +789,12 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                     const active = selectedDate === date;
                     const isBreak = breakDates.has(date);
                     const isHoliday = holidayDates.has(date);
+                    const isTrip = tripDates.has(date);
                     const holiday = holidays.find(h => h.holiday_date === date);
+                    const trip = trips.find(t => {
+                      const s = t.trip_date, e = t.date_end || t.trip_date;
+                      return date >= s && date <= e;
+                    });
                     const isSpecial = isBreak || isHoliday;
 
                     if (isSpecial) {
@@ -804,6 +836,12 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                             <p className="text-xs font-medium" style={{ color: isToday(date) ? "rgba(255,255,255,0.7)" : "#9B6A7A" }}>
                               {formatDay(date)}
                             </p>
+                            {isTrip && trip && (
+                              <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full mr-1"
+                                style={{ background: "rgba(33,150,243,0.15)", color: "#1565C0" }}>
+                                🚌 {trip.name}
+                              </span>
+                            )}
                             {lessons.length > 0 ? (
                               <p className="text-sm font-medium mt-0.5" style={{ color: isToday(date) ? "white" : "#3D1520" }}>
                                 {lessons.length} {lessons.length === 1 ? "урок" : lessons.length < 5 ? "урока" : "уроков"}
@@ -925,9 +963,9 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
             {/* Tabs */}
             <div className="flex rounded-xl p-1 mb-5" style={{ background: "#F5E0E5" }}>
-              {([["modules", "📅 Модули"], ["breaks", "🏖 Каникулы"], ["holidays", "🎉 Праздники"]] as ["modules" | "breaks" | "holidays", string][]).map(([t, label]) => (
+              {([["modules", "📅 Модули"], ["breaks", "🏖 Каникулы"], ["holidays", "🎉 Праздники"], ["trips", "🚌 Выезды"]] as ["modules" | "breaks" | "holidays" | "trips", string][]).map(([t, label]) => (
                 <button key={t} onClick={() => setEditorTab(t)}
-                  className="flex-1 py-2 rounded-lg text-xs font-medium transition-all"
+                  className="flex-1 py-1.5 rounded-lg text-xs font-medium transition-all"
                   style={{ background: editorTab === t ? "#8B1A2F" : "transparent", color: editorTab === t ? "white" : "#8B1A2F" }}>
                   {label}
                 </button>
@@ -1018,6 +1056,48 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                   <Input value={newHoliday.name} onChange={e => setNewHoliday(h => ({ ...h, name: e.target.value }))} placeholder="День Победы" required />
                   <Field label="Дата"><Input type="date" value={newHoliday.holiday_date} onChange={e => setNewHoliday(h => ({ ...h, holiday_date: e.target.value }))} required /></Field>
                   <SaveBtn label={savingHoliday ? "Сохраняем..." : "Добавить"} loading={savingHoliday} />
+                </form>
+              </div>
+            )}
+
+            {/* Tab: Trips */}
+            {editorTab === "trips" && (
+              <div className="space-y-3">
+                <div className="space-y-2">
+                  {trips.length === 0 && <Empty text="Выезды не добавлены" />}
+                  {trips.map(t => (
+                    <div key={t.id} className="flex items-start gap-3 p-3 rounded-xl"
+                      style={{ background: "rgba(33,150,243,0.05)", border: "1.5px solid rgba(33,150,243,0.2)" }}>
+                      <span className="text-lg shrink-0 mt-0.5">🚌</span>
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold" style={{ color: "#0D47A1" }}>{t.name}</p>
+                        <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>
+                          {new Date(t.trip_date).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
+                          {t.date_end && t.date_end !== t.trip_date && (
+                            <> — {new Date(t.date_end).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}</>
+                          )}
+                        </p>
+                        {t.description && <p className="text-xs mt-1" style={{ color: "#9B6A7A" }}>{t.description}</p>}
+                      </div>
+                      <button onClick={() => removeTrip(t.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
+                        <Icon name="Trash2" size={13} className="text-red-400" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <form onSubmit={addTrip} className="p-3 rounded-xl space-y-2" style={{ background: "rgba(33,150,243,0.04)", border: "1.5px dashed rgba(33,150,243,0.3)" }}>
+                  <p className="text-xs font-semibold" style={{ color: "#1565C0" }}>+ Добавить выезд</p>
+                  <Input value={newTrip.name} onChange={e => setNewTrip(v => ({ ...v, name: e.target.value }))} placeholder="Поход в театр" required />
+                  <Input value={newTrip.description} onChange={e => setNewTrip(v => ({ ...v, description: e.target.value }))} placeholder="Описание (необязательно)" />
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Дата начала">
+                      <Input type="date" value={newTrip.trip_date} onChange={e => setNewTrip(v => ({ ...v, trip_date: e.target.value }))} required />
+                    </Field>
+                    <Field label="Дата конца (если несколько дней)">
+                      <Input type="date" value={newTrip.date_end} onChange={e => setNewTrip(v => ({ ...v, date_end: e.target.value }))} />
+                    </Field>
+                  </div>
+                  <SaveBtn label={savingTrip ? "Сохраняем..." : "Добавить"} loading={savingTrip} />
                 </form>
               </div>
             )}

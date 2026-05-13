@@ -72,6 +72,12 @@ def handler(event: dict, context) -> dict:
         return handle_get_modules()
     if action == "update_module":
         return handle_update_module(body)
+    if action == "get_trips":
+        return handle_get_trips(params)
+    if action == "add_trip":
+        return handle_add_trip(body)
+    if action == "delete_trip":
+        return handle_delete_trip(body)
     if action == "get_breaks":
         return handle_get_breaks(params)
     if action == "add_break":
@@ -401,6 +407,56 @@ def handle_update_module(body):
     if not row:
         return err("Модуль не найден", 404)
     return ok(dict(row))
+
+
+# ── Trips (выезды) ───────────────────────────────────────
+def handle_get_trips(params):
+    class_id = params.get("class_id")
+    year = params.get("school_year", "2025-2026")
+    conn = get_conn()
+    cur = conn.cursor()
+    if class_id:
+        cur.execute(
+            f"SELECT * FROM {SCHEMA}.trips WHERE class_id = %s AND school_year = %s ORDER BY trip_date",
+            (class_id, year)
+        )
+    else:
+        cur.execute(f"SELECT * FROM {SCHEMA}.trips WHERE school_year = %s ORDER BY trip_date", (year,))
+    rows = cur.fetchall()
+    conn.close()
+    return ok(list(rows))
+
+
+def handle_add_trip(body):
+    class_id = body.get("class_id")
+    name = (body.get("name") or "").strip()
+    trip_date = (body.get("trip_date") or "").strip()
+    if not class_id or not name or not trip_date:
+        return err("class_id, name, trip_date required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"""INSERT INTO {SCHEMA}.trips (class_id, name, description, trip_date, date_end, school_year)
+            VALUES (%s, %s, %s, %s, %s, %s) RETURNING *""",
+        (class_id, name, body.get("description", ""), trip_date,
+         body.get("date_end") or trip_date, body.get("school_year", "2025-2026"))
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    return ok(dict(row), 201)
+
+
+def handle_delete_trip(body):
+    tid = body.get("id")
+    if not tid:
+        return err("id required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"UPDATE {SCHEMA}.trips SET school_year = CONCAT('archived_', school_year) WHERE id = %s", (tid,))
+    conn.commit()
+    conn.close()
+    return ok({"ok": True})
 
 
 # ── Breaks (каникулы) ─────────────────────────────────────
