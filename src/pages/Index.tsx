@@ -411,7 +411,7 @@ export default function Index() {
       </div>
 
       {/* Mobile bottom nav */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 md:hidden border-t" style={{ background: "rgba(253,246,238,0.96)", backdropFilter: "blur(12px)", borderColor: "rgba(139,26,47,0.12)" }}>
+      <div className="fixed bottom-4 left-4 right-4 z-50 md:hidden rounded-2xl border" style={{ background: "rgba(253,246,238,0.97)", backdropFilter: "blur(12px)", borderColor: "rgba(139,26,47,0.15)", boxShadow: "0 8px 32px rgba(139,26,47,0.15)" }}>
         <div className="flex justify-around py-2">
           {NAV.map(n => (
             <button key={n.id} onClick={() => goTab(n.id)} className="flex flex-col items-center gap-0.5 px-1" style={{ color: tab === n.id ? "#8B1A2F" : "#9B6A7A" }}>
