@@ -18,7 +18,7 @@ type Role = "teacher" | "parent";
 type Tab = "classes" | "schedule" | "homework" | "grades" | "files" | "recommendations";
 
 interface User { id: number; login: string; role: Role; display_name: string; child?: string; child_id?: number; class_id?: number; }
-interface SchoolClass { id: number; name: string; grade: number; letter: string; }
+interface SchoolClass { id: number; name: string; grade: number; letter: string; display_name?: string; }
 interface Student { id: number; full_name: string; class_id: number; class_name?: string; }
 interface ScheduleItem { id: number; day_of_week: string; time_slot: string; subject: string; teacher_name: string; room: string; class_id: number; sort_order: number; }
 interface Homework { id: number; subject: string; task: string; due_date: string; class_id: number; }
@@ -233,12 +233,13 @@ export default function Index() {
 
   if (!user) return <LoginScreen onLogin={setUser} />;
 
-  // Группируем классы по номеру
-  const gradeGroups: Record<number, SchoolClass[]> = {};
+  // Уникальные классы по номеру (берём первый из каждой группы — они все с одним display_name)
+  const uniqueGrades: SchoolClass[] = [];
+  const seenGrades = new Set<number>();
   classes.forEach(c => {
-    if (!gradeGroups[c.grade]) gradeGroups[c.grade] = [];
-    gradeGroups[c.grade].push(c);
+    if (!seenGrades.has(c.grade)) { seenGrades.add(c.grade); uniqueGrades.push(c); }
   });
+  uniqueGrades.sort((a, b) => a.grade - b.grade);
 
   const NAV = [
     { id: "schedule" as Tab, label: "Расписание", emoji: "📅" },
@@ -263,7 +264,7 @@ export default function Index() {
               <p className="font-bold leading-tight" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif", fontSize: 18 }}>Гранатовый Дневник</p>
               <p className="text-xs" style={{ color: "#9B6A7A" }}>
                 {user.role === "teacher" ? `👩‍🏫 ${user.display_name || user.login}` : `👨‍👩‍👧 ${user.child}`}
-                {selectedClass && <span className="ml-1.5 px-1.5 py-0.5 rounded-md text-xs font-semibold" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{selectedClass.name}</span>}
+                {selectedClass && <span className="ml-1.5 px-1.5 py-0.5 rounded-md text-xs font-semibold" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{selectedClass.display_name || selectedClass.name}</span>}
               </p>
             </div>
           </div>
@@ -312,24 +313,17 @@ export default function Index() {
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider mb-2 px-1" style={{ color: "#9B6A7A" }}>Классы</p>
               <div className="space-y-1">
-                {[1, 2, 3, 4, 5, 6, 7].map(grade => (
-                  <div key={grade}>
-                    <p className="text-xs font-semibold px-2 py-1" style={{ color: "#C4405A" }}>{grade} класс</p>
-                    <div className="flex gap-1 px-1">
-                      {(gradeGroups[grade] || []).map(cl => (
-                        <button key={cl.id} onClick={() => { setSelectedClass(cl); goTab("schedule"); }}
-                          className="flex-1 py-1.5 rounded-xl text-xs font-bold transition-all hover:scale-105"
-                          style={{
-                            background: selectedClass?.id === cl.id ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
-                            color: selectedClass?.id === cl.id ? "white" : "#3D1520",
-                            border: "1.5px solid rgba(139,26,47,0.12)",
-                            boxShadow: selectedClass?.id === cl.id ? "0 4px 12px rgba(139,26,47,0.25)" : "none",
-                          }}>
-                          {cl.name}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                {uniqueGrades.map(cl => (
+                  <button key={cl.id} onClick={() => { setSelectedClass(cl); goTab("schedule"); }}
+                    className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.02]"
+                    style={{
+                      background: selectedClass?.grade === cl.grade ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+                      color: selectedClass?.grade === cl.grade ? "white" : "#3D1520",
+                      border: "1.5px solid rgba(139,26,47,0.12)",
+                      boxShadow: selectedClass?.grade === cl.grade ? "0 4px 12px rgba(139,26,47,0.25)" : "none",
+                    }}>
+                    {cl.display_name || `${cl.grade} класс`}
+                  </button>
                 ))}
               </div>
             </div>
@@ -348,12 +342,12 @@ export default function Index() {
               <h2 className="text-3xl font-bold mb-2" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif" }}>Выберите класс</h2>
               <p className="text-sm" style={{ color: "#9B6A7A" }}>Нажмите на класс в панели слева</p>
               {/* Mobile class picker */}
-              <div className="mt-6 grid grid-cols-4 gap-2 md:hidden">
-                {classes.map(cl => (
+              <div className="mt-6 flex flex-col gap-2 w-full max-w-xs md:hidden">
+                {uniqueGrades.map(cl => (
                   <button key={cl.id} onClick={() => { setSelectedClass(cl); goTab("schedule"); }}
-                    className="py-2 rounded-xl text-sm font-bold"
+                    className="py-2.5 px-4 rounded-xl text-sm font-medium text-left"
                     style={{ background: "white", color: "#3D1520", border: "1.5px solid rgba(139,26,47,0.12)" }}>
-                    {cl.name}
+                    {cl.display_name || `${cl.grade} класс`}
                   </button>
                 ))}
               </div>
@@ -478,7 +472,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   return (
     <div>
-      <SectionTitle emoji="📅" title={`Расписание · ${cls.name}`} sub="Учебная неделя" />
+      <SectionTitle emoji="📅" title={`Расписание · ${cls.display_name || cls.name}`} sub="Учебная неделя" />
       <div className="flex gap-2 mb-4 flex-wrap">
         {DAYS.map(d => (
           <button key={d} onClick={() => setDay(d)}
@@ -562,7 +556,7 @@ function StudentsTab({ cls }: { cls: SchoolClass }) {
 
   return (
     <div>
-      <SectionTitle emoji="👥" title={`Ученики · ${cls.name}`} sub={`${students.length} учеников`} />
+      <SectionTitle emoji="👥" title={`Ученики · ${cls.display_name || cls.name}`} sub={`${students.length} учеников`} />
       {loading ? <Loader /> : (
         <div className="space-y-2">
           {students.length === 0 && <Empty text="Список пуст — добавьте первого ученика" />}
@@ -625,7 +619,7 @@ function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   return (
     <div>
-      <SectionTitle emoji="📚" title={`Домашние задания · ${cls.name}`} sub={`${items.length} заданий`} />
+      <SectionTitle emoji="📚" title={`Домашние задания · ${cls.display_name || cls.name}`} sub={`${items.length} заданий`} />
       {loading ? <Loader /> : (
         <div className="space-y-3">
           {items.length === 0 && <Empty text="Заданий нет" />}
@@ -700,7 +694,7 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   return (
     <div>
-      <SectionTitle emoji="⭐" title={`Отметки · ${cls.name}`} sub={user.role === "parent" ? user.child : undefined} />
+      <SectionTitle emoji="⭐" title={`Отметки · ${cls.display_name || cls.name}`} sub={user.role === "parent" ? user.child : undefined} />
       {!loading && stats.length > 0 && (
         <div className="flex gap-2 mb-4 flex-wrap">
           {stats.map(({ g, count }) => (
@@ -774,7 +768,7 @@ function FilesTab({ cls }: { cls: SchoolClass }) {
 
   return (
     <div>
-      <SectionTitle emoji="📎" title={`Файлы · ${cls.name}`} sub={`${files.length} материалов`} />
+      <SectionTitle emoji="📎" title={`Файлы · ${cls.display_name || cls.name}`} sub={`${files.length} материалов`} />
       {loading ? <Loader /> : (
         <div className="space-y-3">
           {files.length === 0 && <Empty text="Файлы не загружены" />}
@@ -833,7 +827,7 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   return (
     <div>
-      <SectionTitle emoji="💬" title={`Рекомендации · ${cls.name}`} sub={user.role === "parent" ? user.child : undefined} />
+      <SectionTitle emoji="💬" title={`Рекомендации · ${cls.display_name || cls.name}`} sub={user.role === "parent" ? user.child : undefined} />
       {loading ? <Loader /> : (
         <div className="space-y-4">
           {recs.length === 0 && <Empty text="Рекомендаций нет" />}
