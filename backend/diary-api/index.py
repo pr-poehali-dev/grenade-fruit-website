@@ -70,6 +70,8 @@ def handler(event: dict, context) -> dict:
         return handle_delete_parent(body)
     if action == "get_modules":
         return handle_get_modules()
+    if action == "update_module":
+        return handle_update_module(body)
     if action == "get_schedule":
         return handle_get_schedule(params)
     if action == "add_schedule":
@@ -363,6 +365,28 @@ def handle_get_modules():
     rows = cur.fetchall()
     conn.close()
     return ok(list(rows))
+
+
+def handle_update_module(body):
+    """Обновляет название и даты модуля."""
+    module_id = body.get("id")
+    name = (body.get("name") or "").strip()
+    date_start = (body.get("date_start") or "").strip()
+    date_end = (body.get("date_end") or "").strip()
+    if not module_id or not name or not date_start or not date_end:
+        return err("id, name, date_start, date_end required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"UPDATE {SCHEMA}.modules SET name = %s, date_start = %s, date_end = %s WHERE id = %s RETURNING *",
+        (name, date_start, date_end, module_id)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return err("Модуль не найден", 404)
+    return ok(dict(row))
 
 
 # ── Schedule by dates ─────────────────────────────────────

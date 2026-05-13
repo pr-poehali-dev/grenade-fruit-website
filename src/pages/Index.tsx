@@ -581,6 +581,32 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const updateSlot = (d: string, i: number, field: keyof LessonSlot, val: string) =>
     setWeeklyTemplate(t => ({ ...t, [d]: t[d].map((s, idx) => idx === i ? { ...s, [field]: val } : s) }));
 
+  // Module editor
+  const [showModuleEditor, setShowModuleEditor] = useState(false);
+  const [editingModules, setEditingModules] = useState<Module[]>([]);
+  const [savingModuleEdit, setSavingModuleEdit] = useState(false);
+
+  const openModuleEditor = () => {
+    setEditingModules(modules.map(m => ({ ...m })));
+    setShowModuleEditor(true);
+  };
+
+  const saveAllModules = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingModuleEdit(true);
+    for (const m of editingModules) {
+      await api("update_module", "POST", { id: m.id, name: m.name, date_start: m.date_start, date_end: m.date_end });
+    }
+    const updated = await api("get_modules");
+    if (Array.isArray(updated)) {
+      setModules(updated);
+      const cur = updated.find((m: Module) => m.id === selectedModule?.id);
+      if (cur) setSelectedModule(cur);
+    }
+    setSavingModuleEdit(false);
+    setShowModuleEditor(false);
+  };
+
   return (
     <div>
       <SectionTitle emoji="📅" title={`Расписание · ${cls.display_name || cls.name}`} />
@@ -640,15 +666,24 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
       {/* ── MODULE CALENDAR VIEW ── */}
       {view === "module" && (
         <>
-          {/* Module selector */}
-          <div className="flex gap-2 mb-4 flex-wrap">
-            {modules.map(m => (
-              <button key={m.id} onClick={() => setSelectedModule(m)}
-                className="px-3 py-1.5 rounded-xl text-sm font-medium transition-all"
-                style={{ background: selectedModule?.id === m.id ? "#8B1A2F" : "white", color: selectedModule?.id === m.id ? "white" : "#8B1A2F", border: "1.5px solid rgba(139,26,47,0.2)" }}>
-                {m.name}
+          {/* Module selector + edit button */}
+          <div className="flex items-start gap-2 mb-4 flex-wrap">
+            <div className="flex gap-2 flex-wrap flex-1">
+              {modules.map(m => (
+                <button key={m.id} onClick={() => setSelectedModule(m)}
+                  className="px-3 py-1.5 rounded-xl text-sm font-medium transition-all"
+                  style={{ background: selectedModule?.id === m.id ? "#8B1A2F" : "white", color: selectedModule?.id === m.id ? "white" : "#8B1A2F", border: "1.5px solid rgba(139,26,47,0.2)" }}>
+                  {m.name}
+                </button>
+              ))}
+            </div>
+            {user.role === "teacher" && (
+              <button onClick={openModuleEditor}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium shrink-0 transition-all hover:opacity-80"
+                style={{ background: "white", color: "#8B1A2F", border: "1.5px solid rgba(139,26,47,0.2)" }}>
+                <Icon name="Settings" size={13} /> Модули
               </button>
-            ))}
+            )}
           </div>
 
           {selectedModule && (
@@ -794,6 +829,58 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                 </div>
               ))}
               <SaveBtn label={savingModule ? "Сохраняем..." : `Применить на ${selectedModule.name}`} loading={savingModule} />
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── MODAL: module editor ── */}
+      {showModuleEditor && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setShowModuleEditor(false)}>
+          <div className="w-full max-w-lg rounded-3xl p-6 shadow-2xl my-4" style={{ background: "white" }} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="text-2xl font-bold" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif" }}>Учебные модули</h3>
+                <p className="text-sm mt-0.5" style={{ color: "#9B6A7A" }}>Редактируйте названия и даты</p>
+              </div>
+              <button onClick={() => setShowModuleEditor(false)} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100">
+                <Icon name="X" size={16} style={{ color: "#9B6A7A" }} />
+              </button>
+            </div>
+            <form onSubmit={saveAllModules} className="space-y-3">
+              {editingModules.map((m, idx) => (
+                <div key={m.id} className="p-4 rounded-2xl" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.1)" }}>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                      style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)" }}>{m.number}</span>
+                    <Input
+                      value={m.name}
+                      onChange={e => setEditingModules(ms => ms.map((x, i) => i === idx ? { ...x, name: e.target.value } : x))}
+                      placeholder="Название модуля"
+                      required
+                    />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Field label="Начало">
+                      <Input
+                        type="date"
+                        value={m.date_start}
+                        onChange={e => setEditingModules(ms => ms.map((x, i) => i === idx ? { ...x, date_start: e.target.value } : x))}
+                        required
+                      />
+                    </Field>
+                    <Field label="Конец">
+                      <Input
+                        type="date"
+                        value={m.date_end}
+                        onChange={e => setEditingModules(ms => ms.map((x, i) => i === idx ? { ...x, date_end: e.target.value } : x))}
+                        required
+                      />
+                    </Field>
+                  </div>
+                </div>
+              ))}
+              <SaveBtn label={savingModuleEdit ? "Сохраняем..." : "Сохранить все модули"} loading={savingModuleEdit} />
             </form>
           </div>
         </div>
