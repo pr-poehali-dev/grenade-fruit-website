@@ -68,6 +68,8 @@ def handler(event: dict, context) -> dict:
         return handle_add_parent(body)
     if action == "delete_parent":
         return handle_delete_parent(body)
+    if action == "get_modules":
+        return handle_get_modules()
     if action == "get_schedule":
         return handle_get_schedule(params)
     if action == "add_schedule":
@@ -76,6 +78,10 @@ def handler(event: dict, context) -> dict:
         return handle_update_schedule(body.get("id"), body)
     if action == "delete_schedule":
         return handle_delete_schedule(body.get("id"))
+    if action == "get_schedule_dates":
+        return handle_get_schedule_dates(params)
+    if action == "save_module_schedule":
+        return handle_save_module_schedule(body)
     if action == "get_homework":
         return handle_get_homework(params)
     if action == "add_homework":
@@ -347,6 +353,123 @@ def handle_delete_schedule(item_id):
     conn.commit()
     conn.close()
     return ok({"ok": True})
+
+
+# ── Modules ───────────────────────────────────────────────
+def handle_get_modules():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"SELECT * FROM {SCHEMA}.modules ORDER BY number")
+    rows = cur.fetchall()
+    conn.close()
+    return ok(list(rows))
+
+
+# ── Schedule by dates ─────────────────────────────────────
+def handle_get_schedule_dates(params):
+    """Расписание на конкретные даты для модуля и класса."""
+    class_id = params.get("class_id")
+    module_id = params.get("module_id")
+    lesson_date = params.get("lesson_date")
+    conn = get_conn()
+    cur = conn.cursor()
+    if lesson_date:
+        cur.execute(
+            f"""SELECT * FROM {SCHEMA}.schedule_dates
+                WHERE class_id = %s AND lesson_date = %s
+                ORDER BY sort_order""",
+            (class_id, lesson_date)
+        )
+    elif module_id and class_id:
+        cur.execute(
+            f"""SELECT * FROM {SCHEMA}.schedule_dates
+                WHERE class_id = %s AND module_id = %s
+                ORDER BY lesson_date, sort_order""",
+            (class_id, module_id)
+        )
+    else:
+        cur.execute(
+            f"SELECT * FROM {SCHEMA}.schedule_dates WHERE class_id = %s ORDER BY lesson_date, sort_order",
+            (class_id,)
+        )
+    rows = cur.fetchall()
+    conn.close()
+    return ok(list(rows))
+
+
+def handle_save_module_schedule(body):
+    """Сохраняет шаблон расписания на весь модуль.
+    Принимает: class_id, module_id, weekly_template (dict day->list of lessons),
+    и разворачивает его на все рабочие недели модуля.
+    """
+    import datetime
+    class_id = body.get("class_id")
+    module_id = body.get("module_id")
+    weekly = body.get("weekly_template", {})  # {"Понедельник": [{time_slot, subject, teacher_name, room},...], ...}
+
+    if not class_id or not module_id or not weekly:
+        return err("class_id, module_id, weekly_template required")
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    # Получаем даты модуля
+    cur.execute(f"SELECT date_start, date_end FROM {SCHEMA}.modules WHERE id = %s", (module_id,))
+    mod = cur.fetchone()
+    if not mod:
+        conn.close()
+        return err("Модуль не найден", 404)
+
+    date_start = mod["date_start"]
+    date_end = mod["date_end"]
+
+    # Маппинг русских дней на weekday()
+    day_map = {"Понедельник": 0, "Вторник": 1, "Среда": 2, "Четверг": 3, "Пятница": 4}
+
+    # Архивируем старые записи для этого класса+модуля
+    cur.execute(
+        f"UPDATE {SCHEMA}.schedule_dates SET sort_order = -1 WHERE class_id = %s AND module_id = %s AND sort_order >= 0",
+        (class_id, module_id)
+    )
+    # Вставляем через UPDATE existing rows trick - просто добавляем новые
+    # Сначала удаляем только через is_archived
+    cur.execute(
+        f"UPDATE {SCHEMA}.schedule_dates SET module_id = NULL WHERE class_id = %s AND module_id = %s AND sort_order = -1",
+        (class_id, module_id)
+    )
+
+    inserted = 0
+    current = date_start
+    if isinstance(current, str):
+        current = datetime.date.fromisoformat(current)
+    if isinstance(date_end, str):
+        date_end = datetime.date.fromisoformat(date_end)
+
+    while current <= date_end:
+        weekday = current.weekday()
+        # Находим название дня
+        day_name = None
+        for name, num in day_map.items():
+            if num == weekday:
+                day_name = name
+                break
+        if day_name and day_name in weekly:
+            lessons = weekly[day_name]
+            for idx, lesson in enumerate(lessons):
+                cur.execute(
+                    f"""INSERT INTO {SCHEMA}.schedule_dates
+                        (class_id, module_id, lesson_date, day_of_week, time_slot, subject, teacher_name, room, sort_order)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
+                    (class_id, module_id, current.isoformat(), day_name,
+                     lesson.get("time_slot", ""), lesson.get("subject", ""),
+                     lesson.get("teacher_name", ""), lesson.get("room", ""), idx)
+                )
+                inserted += 1
+        current += datetime.timedelta(days=1)
+
+    conn.commit()
+    conn.close()
+    return ok({"ok": True, "inserted": inserted})
 
 
 # ── Homework ──────────────────────────────────────────────

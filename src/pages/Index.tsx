@@ -21,6 +21,8 @@ interface User { id: number; login: string; role: Role; display_name: string; ch
 interface SchoolClass { id: number; name: string; grade: number; letter: string; display_name?: string; }
 interface Student { id: number; full_name: string; class_id: number; class_name?: string; }
 interface ScheduleItem { id: number; day_of_week: string; time_slot: string; subject: string; teacher_name: string; room: string; class_id: number; sort_order: number; }
+interface Module { id: number; name: string; number: number; date_start: string; date_end: string; school_year: string; }
+interface ScheduleDate { id: number; lesson_date: string; day_of_week: string; time_slot: string; subject: string; teacher_name: string; room: string; sort_order: number; }
 interface Homework { id: number; subject: string; task: string; due_date: string; class_id: number; }
 interface Grade { id: number; student_id: number; subject: string; grade: number; comment: string; grade_date: string; student_name: string; }
 interface FileItem { id: number; name: string; subject: string; teacher_name: string; upload_date: string; size_label: string; s3_key: string; }
@@ -440,24 +442,69 @@ export default function Index() {
 }
 
 // ─── Schedule Tab ──────────────────────────────────────────
+type SchedView = "week" | "module";
+
+interface LessonSlot { time_slot: string; subject: string; teacher_name: string; room: string; }
+
 function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
+  const [view, setView] = useState<SchedView>("week");
+  const [modules, setModules] = useState<Module[]>([]);
+  const [selectedModule, setSelectedModule] = useState<Module | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
+  // Week view state
   const [items, setItems] = useState<ScheduleItem[]>([]);
   const [day, setDay] = useState("Понедельник");
-  const [loading, setLoading] = useState(true);
+  const [loadingWeek, setLoadingWeek] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<ScheduleItem | null>(null);
   const [form, setForm] = useState({ day_of_week: "Понедельник", time_slot: "08:00–08:45", subject: "", teacher_name: "", room: "" });
-  const [saving, setSaving] = useState(false);
+  const [savingItem, setSavingItem] = useState(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
+  // Module calendar state
+  const [schedDates, setSchedDates] = useState<ScheduleDate[]>([]);
+  const [loadingDates, setLoadingDates] = useState(false);
+  const [showModuleForm, setShowModuleForm] = useState(false);
+  const [savingModule, setSavingModule] = useState(false);
+
+  // Weekly template for module schedule builder
+  const emptySlot = (): LessonSlot => ({ time_slot: "", subject: "", teacher_name: "", room: "" });
+  const [weeklyTemplate, setWeeklyTemplate] = useState<Record<string, LessonSlot[]>>(
+    Object.fromEntries(DAYS.map(d => [d, [emptySlot()]]))
+  );
+
+  // Load base week schedule
+  const loadWeek = useCallback(async () => {
+    setLoadingWeek(true);
     const data = await api(`get_schedule&class_id=${cls.id}`);
     if (Array.isArray(data)) setItems(data);
-    setLoading(false);
+    setLoadingWeek(false);
   }, [cls.id]);
 
-  useEffect(() => { load(); }, [load]);
+  // Load modules once
+  useEffect(() => {
+    api("get_modules").then(data => {
+      if (Array.isArray(data)) {
+        setModules(data);
+        setSelectedModule(data[0] || null);
+      }
+    });
+    loadWeek();
+  }, [loadWeek]);
 
+  // Load module calendar dates
+  const loadDates = useCallback(async (modId: number) => {
+    setLoadingDates(true);
+    const data = await api(`get_schedule_dates&class_id=${cls.id}&module_id=${modId}`);
+    if (Array.isArray(data)) setSchedDates(data);
+    setLoadingDates(false);
+  }, [cls.id]);
+
+  useEffect(() => {
+    if (view === "module" && selectedModule) loadDates(selectedModule.id);
+  }, [view, selectedModule, loadDates]);
+
+  // Helpers
   const dayItems = items.filter(i => i.day_of_week === day).sort((a, b) => a.sort_order - b.sort_order);
 
   const openEdit = (item: ScheduleItem) => {
@@ -466,70 +513,230 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
     setShowAdd(true);
   };
 
-  const openAdd = () => {
-    setEditing(null);
-    setForm({ day_of_week: day, time_slot: "08:00–08:45", subject: "", teacher_name: "", room: "" });
-    setShowAdd(true);
+  const saveItem = async (e: React.FormEvent) => {
+    e.preventDefault(); setSavingItem(true);
+    if (editing) await api("update_schedule", "POST", { ...form, id: editing.id });
+    else await api("add_schedule", "POST", { ...form, class_id: cls.id });
+    setSavingItem(false); setShowAdd(false); loadWeek();
   };
 
-  const save = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
-    if (editing) {
-      await api("update_schedule", "POST", { ...form, id: editing.id });
-    } else {
-      await api("add_schedule", "POST", { ...form, class_id: cls.id });
-    }
-    setSaving(false);
-    setShowAdd(false);
-    load();
-  };
-
-  const del = async (id: number) => {
+  const delItem = async (id: number) => {
     await api("delete_schedule", "POST", { id });
-    load();
+    loadWeek();
   };
+
+  // Module calendar helpers
+  const getAllDatesInModule = (mod: Module): string[] => {
+    const dates: string[] = [];
+    const start = new Date(mod.date_start);
+    const end = new Date(mod.date_end);
+    const cur = new Date(start);
+    while (cur <= end) {
+      if (cur.getDay() !== 0 && cur.getDay() !== 6) {
+        dates.push(cur.toISOString().split("T")[0]);
+      }
+      cur.setDate(cur.getDate() + 1);
+    }
+    return dates;
+  };
+
+  const getLessonsForDate = (date: string) =>
+    schedDates.filter(s => s.lesson_date === date).sort((a, b) => a.sort_order - b.sort_order);
+
+  const formatDate = (iso: string) => {
+    const d = new Date(iso);
+    return d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+  };
+
+  const formatDay = (iso: string) => {
+    const d = new Date(iso);
+    return DAYS[d.getDay() - 1] || "";
+  };
+
+  const isToday = (iso: string) => iso === new Date().toISOString().split("T")[0];
+
+  // Module schedule save
+  const saveModuleSchedule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedModule) return;
+    // Убираем пустые слоты
+    const clean: Record<string, LessonSlot[]> = {};
+    DAYS.forEach(d => {
+      const slots = weeklyTemplate[d].filter(s => s.subject.trim());
+      if (slots.length) clean[d] = slots;
+    });
+    setSavingModule(true);
+    await api("save_module_schedule", "POST", {
+      class_id: cls.id,
+      module_id: selectedModule.id,
+      weekly_template: clean,
+    });
+    setSavingModule(false);
+    setShowModuleForm(false);
+    loadDates(selectedModule.id);
+  };
+
+  const addSlot = (d: string) => setWeeklyTemplate(t => ({ ...t, [d]: [...t[d], emptySlot()] }));
+  const removeSlot = (d: string, i: number) => setWeeklyTemplate(t => ({ ...t, [d]: t[d].filter((_, idx) => idx !== i) }));
+  const updateSlot = (d: string, i: number, field: keyof LessonSlot, val: string) =>
+    setWeeklyTemplate(t => ({ ...t, [d]: t[d].map((s, idx) => idx === i ? { ...s, [field]: val } : s) }));
 
   return (
     <div>
-      <SectionTitle emoji="📅" title={`Расписание · ${cls.display_name || cls.name}`} sub="Учебная неделя" />
-      <div className="flex gap-2 mb-4 flex-wrap">
-        {DAYS.map(d => (
-          <button key={d} onClick={() => setDay(d)}
-            className="px-3 py-1.5 rounded-xl text-sm font-medium transition-all"
-            style={{ background: day === d ? "#8B1A2F" : "white", color: day === d ? "white" : "#8B1A2F", border: "1.5px solid rgba(139,26,47,0.2)" }}>
-            {d}
-          </button>
+      <SectionTitle emoji="📅" title={`Расписание · ${cls.display_name || cls.name}`} />
+
+      {/* View toggle */}
+      <div className="flex gap-2 mb-5">
+        {([["week", "📋 Недельное"], ["module", "🗓 Календарь модуля"]] as [SchedView, string][]).map(([v, label]) => (
+          <button key={v} onClick={() => setView(v)}
+            className="px-4 py-2 rounded-xl text-sm font-medium transition-all"
+            style={{
+              background: view === v ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+              color: view === v ? "white" : "#3D1520",
+              border: "1.5px solid rgba(139,26,47,0.15)",
+              boxShadow: view === v ? "0 4px 12px rgba(139,26,47,0.2)" : "none",
+            }}>{label}</button>
         ))}
       </div>
 
-      {loading ? <Loader /> : (
-        <div className="space-y-3">
-          {dayItems.length === 0 && <Empty text="Уроки не добавлены" />}
-          {dayItems.map((item, i) => (
-            <div key={item.id} className="flex gap-3 items-center p-4 rounded-2xl card-hover animate-slide-up"
-              style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.06}s`, opacity: 0 }}>
-              <span className="text-xs font-medium px-2 py-1 rounded-lg shrink-0" style={{ background: "#F5E0E5", color: "#8B1A2F", whiteSpace: "nowrap" }}>{item.time_slot}</span>
-              <div className="flex-1">
-                <p className="font-semibold text-sm" style={{ color: "#3D1520" }}>{item.subject}</p>
-                <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{item.teacher_name}</p>
+      {/* ── WEEK VIEW ── */}
+      {view === "week" && (
+        <>
+          <div className="flex gap-2 mb-4 flex-wrap">
+            {DAYS.map(d => (
+              <button key={d} onClick={() => setDay(d)}
+                className="px-3 py-1.5 rounded-xl text-sm font-medium transition-all"
+                style={{ background: day === d ? "#8B1A2F" : "white", color: day === d ? "white" : "#8B1A2F", border: "1.5px solid rgba(139,26,47,0.2)" }}>
+                {d}
+              </button>
+            ))}
+          </div>
+          {loadingWeek ? <Loader /> : (
+            <div className="space-y-3">
+              {dayItems.length === 0 && <Empty text="Уроки не добавлены" />}
+              {dayItems.map((item, i) => (
+                <div key={item.id} className="flex gap-3 items-center p-4 rounded-2xl card-hover animate-slide-up"
+                  style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.06}s`, opacity: 0 }}>
+                  <span className="text-xs font-medium px-2 py-1 rounded-lg shrink-0" style={{ background: "#F5E0E5", color: "#8B1A2F", whiteSpace: "nowrap" }}>{item.time_slot}</span>
+                  <div className="flex-1">
+                    <p className="font-semibold text-sm" style={{ color: "#3D1520" }}>{item.subject}</p>
+                    <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{item.teacher_name}</p>
+                  </div>
+                  <span className="text-xs px-2 py-1 rounded-lg shrink-0" style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>🚪 {item.room}</span>
+                  {user.role === "teacher" && (
+                    <div className="flex gap-1">
+                      <button onClick={() => openEdit(item)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100"><Icon name="Pencil" size={13} style={{ color: "#8B1A2F" }} /></button>
+                      <button onClick={() => delItem(item.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50"><Icon name="Trash2" size={13} className="text-red-400" /></button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {user.role === "teacher" && <AddBtn label="Добавить урок" onClick={() => { setEditing(null); setForm({ day_of_week: day, time_slot: "08:00–08:45", subject: "", teacher_name: "", room: "" }); setShowAdd(true); }} />}
+        </>
+      )}
+
+      {/* ── MODULE CALENDAR VIEW ── */}
+      {view === "module" && (
+        <>
+          {/* Module selector */}
+          <div className="flex gap-2 mb-4 flex-wrap">
+            {modules.map(m => (
+              <button key={m.id} onClick={() => setSelectedModule(m)}
+                className="px-3 py-1.5 rounded-xl text-sm font-medium transition-all"
+                style={{ background: selectedModule?.id === m.id ? "#8B1A2F" : "white", color: selectedModule?.id === m.id ? "white" : "#8B1A2F", border: "1.5px solid rgba(139,26,47,0.2)" }}>
+                {m.name}
+              </button>
+            ))}
+          </div>
+
+          {selectedModule && (
+            <>
+              <div className="flex items-center justify-between mb-4">
+                <p className="text-sm" style={{ color: "#9B6A7A" }}>
+                  {formatDate(selectedModule.date_start)} — {formatDate(selectedModule.date_end)} · {selectedModule.school_year}
+                </p>
+                {user.role === "teacher" && (
+                  <button onClick={() => setShowModuleForm(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all hover:opacity-80"
+                    style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)", color: "white" }}>
+                    <Icon name="CalendarPlus" size={13} /> Заполнить модуль
+                  </button>
+                )}
               </div>
-              <span className="text-xs px-2 py-1 rounded-lg shrink-0" style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>🚪 {item.room}</span>
-              {user.role === "teacher" && (
-                <div className="flex gap-1">
-                  <button onClick={() => openEdit(item)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100"><Icon name="Pencil" size={13} style={{ color: "#8B1A2F" }} /></button>
-                  <button onClick={() => del(item.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50"><Icon name="Trash2" size={13} className="text-red-400" /></button>
+
+              {loadingDates ? <Loader /> : (
+                <div className="space-y-2">
+                  {getAllDatesInModule(selectedModule).map(date => {
+                    const lessons = getLessonsForDate(date);
+                    const active = selectedDate === date;
+                    return (
+                      <div key={date}>
+                        <button
+                          onClick={() => setSelectedDate(active ? null : date)}
+                          className="w-full flex items-center gap-3 p-3 rounded-2xl transition-all hover:opacity-90"
+                          style={{
+                            background: isToday(date) ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : active ? "#F5E0E5" : "white",
+                            border: `1.5px solid ${isToday(date) ? "transparent" : "rgba(139,26,47,0.1)"}`,
+                          }}>
+                          <div className="w-12 text-center shrink-0">
+                            <p className="text-lg font-bold leading-none" style={{ color: isToday(date) ? "white" : "#8B1A2F", fontFamily: "Cormorant, serif" }}>
+                              {new Date(date).getDate()}
+                            </p>
+                            <p className="text-xs mt-0.5" style={{ color: isToday(date) ? "rgba(255,255,255,0.8)" : "#9B6A7A" }}>
+                              {new Date(date).toLocaleDateString("ru-RU", { month: "short" })}
+                            </p>
+                          </div>
+                          <div className="flex-1 text-left">
+                            <p className="text-xs font-medium" style={{ color: isToday(date) ? "rgba(255,255,255,0.7)" : "#9B6A7A" }}>
+                              {formatDay(date)}
+                            </p>
+                            {lessons.length > 0 ? (
+                              <p className="text-sm font-medium mt-0.5" style={{ color: isToday(date) ? "white" : "#3D1520" }}>
+                                {lessons.length} {lessons.length === 1 ? "урок" : lessons.length < 5 ? "урока" : "уроков"}
+                                {" · "}{lessons.map(l => l.subject).slice(0, 3).join(", ")}
+                                {lessons.length > 3 ? "..." : ""}
+                              </p>
+                            ) : (
+                              <p className="text-sm mt-0.5" style={{ color: isToday(date) ? "rgba(255,255,255,0.5)" : "#C4B0B5" }}>нет уроков</p>
+                            )}
+                          </div>
+                          {lessons.length > 0 && (
+                            <Icon name={active ? "ChevronUp" : "ChevronDown"} size={16} style={{ color: isToday(date) ? "white" : "#9B6A7A", shrink: 0 }} />
+                          )}
+                        </button>
+
+                        {/* Expanded lessons */}
+                        {active && lessons.length > 0 && (
+                          <div className="ml-4 mt-1 space-y-1.5 mb-2">
+                            {lessons.map((l, i) => (
+                              <div key={l.id} className="flex gap-3 items-center p-3 rounded-xl animate-slide-up"
+                                style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.04}s`, opacity: 0 }}>
+                                <span className="text-xs font-medium px-2 py-0.5 rounded-lg shrink-0" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{l.time_slot}</span>
+                                <div className="flex-1">
+                                  <p className="text-sm font-semibold" style={{ color: "#3D1520" }}>{l.subject}</p>
+                                  <p className="text-xs" style={{ color: "#9B6A7A" }}>{l.teacher_name}</p>
+                                </div>
+                                <span className="text-xs px-2 py-0.5 rounded-lg shrink-0" style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>🚪 {l.room}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               )}
-            </div>
-          ))}
-        </div>
+            </>
+          )}
+        </>
       )}
-      {user.role === "teacher" && <AddBtn label="Добавить урок" onClick={openAdd} />}
 
+      {/* ── MODAL: edit/add single lesson (week view) ── */}
       {showAdd && (
         <Modal title={editing ? "Редактировать урок" : "Новый урок"} onClose={() => setShowAdd(false)}>
-          <form onSubmit={save} className="space-y-3">
+          <form onSubmit={saveItem} className="space-y-3">
             <Field label="День недели">
               <Select value={form.day_of_week} onChange={e => setForm(f => ({ ...f, day_of_week: e.target.value }))}>
                 {DAYS.map(d => <option key={d}>{d}</option>)}
@@ -539,9 +746,57 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
             <Field label="Предмет"><Input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="Математика" required /></Field>
             <Field label="Учитель"><Input value={form.teacher_name} onChange={e => setForm(f => ({ ...f, teacher_name: e.target.value }))} placeholder="Анна Сергеевна" required /></Field>
             <Field label="Кабинет"><Input value={form.room} onChange={e => setForm(f => ({ ...f, room: e.target.value }))} placeholder="305" required /></Field>
-            <SaveBtn loading={saving} />
+            <SaveBtn loading={savingItem} />
           </form>
         </Modal>
+      )}
+
+      {/* ── MODAL: fill module schedule ── */}
+      {showModuleForm && selectedModule && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setShowModuleForm(false)}>
+          <div className="w-full max-w-2xl rounded-3xl p-6 shadow-2xl my-4" style={{ background: "white" }} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h3 className="text-2xl font-bold" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif" }}>Расписание на {selectedModule.name}</h3>
+                <p className="text-sm mt-0.5" style={{ color: "#9B6A7A" }}>Заполните шаблон недели — он применится на все дни модуля</p>
+              </div>
+              <button onClick={() => setShowModuleForm(false)} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100">
+                <Icon name="X" size={16} style={{ color: "#9B6A7A" }} />
+              </button>
+            </div>
+            <form onSubmit={saveModuleSchedule} className="space-y-5">
+              {DAYS.map(d => (
+                <div key={d}>
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-sm font-semibold" style={{ color: "#8B1A2F" }}>{d}</p>
+                    <button type="button" onClick={() => addSlot(d)} className="text-xs px-2 py-1 rounded-lg" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
+                      + Урок
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {weeklyTemplate[d].map((slot, i) => (
+                      <div key={i} className="grid grid-cols-2 gap-2 p-3 rounded-xl" style={{ background: "#FDF6EE", border: "1px solid rgba(139,26,47,0.08)" }}>
+                        <Input value={slot.time_slot} onChange={e => updateSlot(d, i, "time_slot", e.target.value)} placeholder="08:00–08:45" />
+                        <div className="flex gap-1">
+                          <Input value={slot.subject} onChange={e => updateSlot(d, i, "subject", e.target.value)} placeholder="Предмет" />
+                          <button type="button" onClick={() => removeSlot(d, i)} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
+                            <Icon name="X" size={13} className="text-red-400" />
+                          </button>
+                        </div>
+                        <Input value={slot.teacher_name} onChange={e => updateSlot(d, i, "teacher_name", e.target.value)} placeholder="Учитель" />
+                        <Input value={slot.room} onChange={e => updateSlot(d, i, "room", e.target.value)} placeholder="Кабинет" />
+                      </div>
+                    ))}
+                    {weeklyTemplate[d].length === 0 && (
+                      <p className="text-xs text-center py-2" style={{ color: "#C4B0B5" }}>Нет уроков в этот день</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+              <SaveBtn label={savingModule ? "Сохраняем..." : `Применить на ${selectedModule.name}`} loading={savingModule} />
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );
