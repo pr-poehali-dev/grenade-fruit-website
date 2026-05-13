@@ -1,9 +1,17 @@
 {
   "tests": [
     {
+      "name": "Healthcheck",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": {"status": "ok"},
+      "bodyMatcher": "partial"
+    },
+    {
       "name": "Login parent1",
       "method": "POST",
-      "path": "/login",
+      "path": "/?action=login",
       "body": {"login": "parent1", "password": "parent1pass"},
       "expectedStatus": 200,
       "expectedBody": {"role": "parent"},
@@ -12,35 +20,27 @@
     {
       "name": "Login teacher",
       "method": "POST",
-      "path": "/login",
+      "path": "/?action=login",
       "body": {"login": "Анна Сергеевна", "password": "teacher2024"},
       "expectedStatus": 200,
       "expectedBody": {"role": "teacher"},
       "bodyMatcher": "partial"
     },
     {
-      "name": "Get schedule",
+      "name": "Get classes",
       "method": "GET",
-      "path": "/schedule?day=Понедельник",
+      "path": "/?action=get_classes",
       "expectedStatus": 200,
-      "expectedBody": [],
-      "bodyMatcher": "partial"
-    },
-    {
-      "name": "Get homework",
-      "method": "GET",
-      "path": "/homework",
-      "expectedStatus": 200,
-      "expectedBody": [],
-      "bodyMatcher": "partial"
+      "expectedBody": {"id": 1},
+      "bodyMatcher": "array_contains"
     },
     {
       "name": "Get students",
       "method": "GET",
-      "path": "/students",
+      "path": "/?action=get_students&class_id=14",
       "expectedStatus": 200,
-      "expectedBody": [],
-      "bodyMatcher": "partial"
+      "expectedBody": {"full_name": "Алёша Петров"},
+      "bodyMatcher": "array_contains"
     }
   ]
 }

@@ -1,269 +1,185 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
 
-// ─── Types ───────────────────────────────────────────────
+const API = "https://functions.poehali.dev/4adc107f-8465-4183-bc1a-9345fd1468dc";
+
+async function api(action: string, method = "GET", body?: object) {
+  const url = `${API}/?action=${action}`;
+  const res = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  return res.json();
+}
+
+// ─── Types ────────────────────────────────────────────────
 type Role = "teacher" | "parent";
-type Section = "schedule" | "homework" | "grades" | "files" | "recommendations";
+type Tab = "classes" | "schedule" | "homework" | "grades" | "files" | "recommendations";
 
-interface Notification {
-  id: number;
-  text: string;
-  time: string;
-  read: boolean;
-  type: "grade" | "homework" | "recommendation" | "file";
-}
-
-interface Grade {
-  id: number;
-  subject: string;
-  grade: number;
-  date: string;
-  comment: string;
-  student: string;
-}
-
-interface Homework {
-  id: number;
-  subject: string;
-  task: string;
-  dueDate: string;
-  files?: string[];
-}
-
-interface ScheduleItem {
-  time: string;
-  subject: string;
-  teacher: string;
-  room: string;
-}
-
-interface FileItem {
-  id: number;
-  name: string;
-  subject: string;
-  uploadedBy: string;
-  date: string;
-  size: string;
-}
-
-interface Recommendation {
-  id: number;
-  teacher: string;
-  subject: string;
-  text: string;
-  date: string;
-  student: string;
-}
-
-// ─── Mock Data ───────────────────────────────────────────
-const TEACHERS_PASSWORD = "teacher2024";
-const PARENTS: Record<string, { password: string; child: string }> = {
-  parent1: { password: "parent1pass", child: "Алёша Петров" },
-  parent2: { password: "parent2pass", child: "Маша Иванова" },
-};
-
-const SCHEDULE: Record<string, ScheduleItem[]> = {
-  "Понедельник": [
-    { time: "08:00–08:45", subject: "Математика", teacher: "Анна Сергеевна", room: "305" },
-    { time: "09:00–09:45", subject: "Русский язык", teacher: "Ольга Петровна", room: "201" },
-    { time: "10:00–10:45", subject: "История", teacher: "Михаил Иванович", room: "108" },
-    { time: "11:00–11:45", subject: "Физкультура", teacher: "Сергей Николаевич", room: "Спортзал" },
-    { time: "12:00–12:45", subject: "Биология", teacher: "Наталья Дмитриевна", room: "404" },
-  ],
-  "Вторник": [
-    { time: "08:00–08:45", subject: "Физика", teacher: "Пётр Александрович", room: "302" },
-    { time: "09:00–09:45", subject: "Математика", teacher: "Анна Сергеевна", room: "305" },
-    { time: "10:00–10:45", subject: "Литература", teacher: "Ольга Петровна", room: "201" },
-    { time: "11:00–11:45", subject: "Химия", teacher: "Наталья Дмитриевна", room: "402" },
-  ],
-  "Среда": [
-    { time: "08:00–08:45", subject: "Математика", teacher: "Анна Сергеевна", room: "305" },
-    { time: "09:00–09:45", subject: "Английский язык", teacher: "Ирина Владимировна", room: "112" },
-    { time: "10:00–10:45", subject: "История", teacher: "Михаил Иванович", room: "108" },
-  ],
-};
-
-const HOMEWORK: Homework[] = [
-  { id: 1, subject: "Математика", task: "§12, упр. 345–350. Решить задачи на стр. 87 №4,5,6", dueDate: "14 мая", files: [] },
-  { id: 2, subject: "Русский язык", task: "Написать сочинение-рассуждение «Что такое дружба» (150–200 слов)", dueDate: "15 мая", files: ["план_сочинения.pdf"] },
-  { id: 3, subject: "История", task: "Прочитать §18–19, ответить на вопросы в конце параграфа", dueDate: "15 мая", files: [] },
-  { id: 4, subject: "Биология", task: "Нарисовать схему строения клетки и подписать все органоиды", dueDate: "16 мая", files: ["схема_клетки.jpg"] },
-];
-
-const GRADES: Grade[] = [
-  { id: 1, subject: "Математика", grade: 5, date: "12 мая", comment: "Отлично решил контрольную работу!", student: "Алёша Петров" },
-  { id: 2, subject: "Русский язык", grade: 4, date: "11 мая", comment: "Хорошая работа, но есть ошибки в пунктуации", student: "Алёша Петров" },
-  { id: 3, subject: "История", grade: 3, date: "10 мая", comment: "Нужно повторить материал по теме", student: "Маша Иванова" },
-  { id: 4, subject: "Биология", grade: 5, date: "9 мая", comment: "Прекрасный доклад!", student: "Маша Иванова" },
-  { id: 5, subject: "Физика", grade: 4, date: "8 мая", comment: "Хорошее понимание темы", student: "Алёша Петров" },
-];
-
-const FILES: FileItem[] = [
-  { id: 1, name: "Контрольная_математика_май.pdf", subject: "Математика", uploadedBy: "Анна Сергеевна", date: "12 мая", size: "245 КБ" },
-  { id: 2, name: "Правила_пунктуации.docx", subject: "Русский язык", uploadedBy: "Ольга Петровна", date: "10 мая", size: "112 КБ" },
-  { id: 3, name: "Презентация_история_WW2.pptx", subject: "История", uploadedBy: "Михаил Иванович", date: "8 мая", size: "3.2 МБ" },
-  { id: 4, name: "Задачи_олимпиада_2024.pdf", subject: "Математика", uploadedBy: "Анна Сергеевна", date: "5 мая", size: "890 КБ" },
-];
-
-const RECOMMENDATIONS: Recommendation[] = [
-  { id: 1, teacher: "Анна Сергеевна", subject: "Математика", text: "Алёша отлично справляется с алгеброй. Рекомендую записать в математический кружок — там подготовка к олимпиаде. Нужно подтянуть геометрию, уделите 20 минут в день.", date: "12 мая", student: "Алёша Петров" },
-  { id: 2, teacher: "Ольга Петровна", subject: "Русский язык", text: "Прошу обратить внимание на орфографию. Советую читать вслух по 15–20 минут ежедневно — это помогает усвоить правила интуитивно. Отличное сочинение на прошлой неделе!", date: "11 мая", student: "Алёша Петров" },
-  { id: 3, teacher: "Наталья Дмитриевна", subject: "Биология", text: "Маша показала прекрасные знания. Рекомендую биологический клуб. Небольшие трудности с систематикой — можно использовать карточки для запоминания.", date: "9 мая", student: "Маша Иванова" },
-];
-
-const INIT_NOTIFS: Notification[] = [
-  { id: 1, text: "Новая отметка по математике: 5 ⭐", time: "Сегодня, 12:30", read: false, type: "grade" },
-  { id: 2, text: "Добавлено домашнее задание по биологии", time: "Сегодня, 11:15", read: false, type: "homework" },
-  { id: 3, text: "Новая рекомендация от Ольги Петровны", time: "Вчера, 16:40", read: true, type: "recommendation" },
-  { id: 4, text: "Загружен файл: Правила_пунктуации.docx", time: "Вчера, 10:20", read: true, type: "file" },
-];
+interface User { id: number; login: string; role: Role; display_name: string; child?: string; child_id?: number; class_id?: number; }
+interface SchoolClass { id: number; name: string; grade: number; letter: string; }
+interface Student { id: number; full_name: string; class_id: number; class_name?: string; }
+interface ScheduleItem { id: number; day_of_week: string; time_slot: string; subject: string; teacher_name: string; room: string; class_id: number; sort_order: number; }
+interface Homework { id: number; subject: string; task: string; due_date: string; class_id: number; }
+interface Grade { id: number; student_id: number; subject: string; grade: number; comment: string; grade_date: string; student_name: string; }
+interface FileItem { id: number; name: string; subject: string; teacher_name: string; upload_date: string; size_label: string; s3_key: string; }
+interface Recommendation { id: number; subject: string; text: string; rec_date: string; student_name: string; teacher_name: string; }
+interface Notification { id: number; text: string; type: string; is_read: boolean; created_at: string; }
 
 // ─── Floating seeds ───────────────────────────────────────
 const SEEDS = [
-  { top: "10%", left: "2%", size: 12, delay: "0s", opacity: 0.45 },
-  { top: "18%", right: "4%", size: 8, delay: "1.2s", opacity: 0.35 },
-  { top: "45%", left: "1%", size: 10, delay: "2.1s", opacity: 0.3 },
-  { top: "65%", right: "2%", size: 14, delay: "0.6s", opacity: 0.4 },
-  { top: "82%", left: "3%", size: 9, delay: "1.7s", opacity: 0.3 },
+  { top: "10%", left: "2%", size: 12, delay: "0s", opacity: 0.4 },
+  { top: "20%", right: "3%", size: 8, delay: "1.2s", opacity: 0.3 },
+  { top: "50%", left: "1%", size: 10, delay: "2s", opacity: 0.25 },
+  { top: "70%", right: "2%", size: 14, delay: "0.7s", opacity: 0.35 },
 ];
-
 function Seed({ top, left, right, size, delay, opacity }: { top?: string; left?: string; right?: string; size: number; delay: string; opacity: number }) {
   return (
-    <div className="pointer-events-none fixed animate-float"
-      style={{ top, left, right, width: size, height: size, animationDelay: delay, opacity, zIndex: 1 }}>
-      <div style={{
-        width: size, height: size, borderRadius: "50% 50% 50% 20%",
-        background: "radial-gradient(circle at 30% 30%, #D4A843, #8B1A2F)",
-        transform: "rotate(-30deg)",
-      }} />
+    <div className="pointer-events-none fixed animate-float" style={{ top, left, right, width: size, height: size, animationDelay: delay, opacity, zIndex: 1 }}>
+      <div style={{ width: size, height: size, borderRadius: "50% 50% 50% 20%", background: "radial-gradient(circle at 30% 30%, #D4A843, #8B1A2F)", transform: "rotate(-30deg)" }} />
     </div>
   );
 }
 
-// ─── Grade Badge ─────────────────────────────────────────
 function GradeBadge({ grade }: { grade: number }) {
   return (
-    <div className={`w-11 h-11 rounded-full flex items-center justify-center text-xl font-bold grade-${grade} shrink-0`}
-      style={{ fontFamily: "Cormorant, serif" }}>
+    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold shrink-0 grade-${grade}`} style={{ fontFamily: "Cormorant, serif" }}>
       {grade}
     </div>
   );
 }
 
-// ─── NAV ─────────────────────────────────────────────────
-const NAV: { id: Section; label: string; emoji: string }[] = [
-  { id: "schedule", label: "Расписание", emoji: "📅" },
-  { id: "homework", label: "Домашние задания", emoji: "📚" },
-  { id: "grades", label: "Отметки", emoji: "⭐" },
-  { id: "files", label: "Файлы", emoji: "📎" },
-  { id: "recommendations", label: "Рекомендации", emoji: "💬" },
-];
+function SectionTitle({ emoji, title, sub }: { emoji: string; title: string; sub?: string }) {
+  return (
+    <div className="flex items-center gap-3 mb-5">
+      <div className="w-11 h-11 rounded-2xl flex items-center justify-center text-xl shrink-0" style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)" }}>{emoji}</div>
+      <div>
+        <h2 className="text-3xl font-bold leading-tight" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif" }}>{title}</h2>
+        {sub && <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{sub}</p>}
+      </div>
+    </div>
+  );
+}
 
+function AddBtn({ label, onClick }: { label: string; onClick?: () => void }) {
+  return (
+    <button onClick={onClick} className="mt-3 w-full py-3 rounded-2xl text-sm font-medium border-2 border-dashed transition-all hover:opacity-70"
+      style={{ borderColor: "rgba(139,26,47,0.25)", color: "#8B1A2F" }}>
+      + {label}
+    </button>
+  );
+}
+
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.4)" }} onClick={onClose}>
+      <div className="w-full max-w-md rounded-3xl p-6 shadow-2xl animate-bounce-in" style={{ background: "white" }} onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="text-2xl font-bold" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif" }}>{title}</h3>
+          <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100">
+            <Icon name="X" size={16} style={{ color: "#9B6A7A" }} />
+          </button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-xs font-medium mb-1.5" style={{ color: "#9B6A7A" }}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+const inputStyle = { background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.15)", color: "#3D1520", fontFamily: "Rubik, sans-serif" };
+function Input(props: React.InputHTMLAttributes<HTMLInputElement>) {
+  return <input {...props} className="w-full px-4 py-2.5 rounded-xl text-sm outline-none" style={inputStyle} />;
+}
+function Textarea(props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return <textarea {...props} className="w-full px-4 py-2.5 rounded-xl text-sm outline-none resize-none" style={inputStyle} />;
+}
+function Select(props: React.SelectHTMLAttributes<HTMLSelectElement>) {
+  return <select {...props} className="w-full px-4 py-2.5 rounded-xl text-sm outline-none" style={inputStyle} />;
+}
+
+function SaveBtn({ label = "Сохранить", loading }: { label?: string; loading?: boolean }) {
+  return (
+    <button type="submit" disabled={loading} className="w-full py-3 rounded-xl font-semibold text-sm mt-2"
+      style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)", color: "white", opacity: loading ? 0.7 : 1 }}>
+      {loading ? "Сохраняем..." : label}
+    </button>
+  );
+}
+
+const DAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница", "Суббота"];
 const NOTIF_EMOJI: Record<string, string> = { grade: "⭐", homework: "📚", recommendation: "💬", file: "📎" };
 
 // ─── Login ────────────────────────────────────────────────
-function LoginScreen({ onLogin }: { onLogin: (role: Role, name: string, child?: string) => void }) {
+function LoginScreen({ onLogin }: { onLogin: (u: User) => void }) {
   const [tab, setTab] = useState<Role>("parent");
-  const [loginVal, setLoginVal] = useState("");
+  const [login, setLogin] = useState("");
   const [pass, setPass] = useState("");
   const [error, setError] = useState("");
-  const [shake, setShake] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const tryLogin = (e: React.FormEvent) => {
+  const submit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
-    if (tab === "teacher") {
-      if (pass === TEACHERS_PASSWORD) { onLogin("teacher", loginVal || "Учитель"); return; }
-    } else {
-      const p = PARENTS[loginVal];
-      if (p && p.password === pass) { onLogin("parent", loginVal, p.child); return; }
-    }
-    setError("Неверный логин или пароль");
-    setShake(true);
-    setTimeout(() => setShake(false), 500);
+    setError(""); setLoading(true);
+    const res = await api("login", "POST", { login, password: pass });
+    setLoading(false);
+    if (res.error) { setError(res.error); return; }
+    onLogin(res as User);
   };
 
   return (
     <div className="min-h-screen login-bg flex items-center justify-center p-4 relative overflow-hidden">
       {SEEDS.map((s, i) => <Seed key={i} {...s} />)}
-
-      <div className="absolute right-0 bottom-0 w-80 h-80 opacity-[0.07] pointer-events-none rounded-full overflow-hidden">
-        <img src="https://cdn.poehali.dev/projects/216115a8-6f23-4b25-a72a-91c740414743/files/e2a1af37-06ef-4ec7-a9e7-6f0549e28cfc.jpg" className="w-full h-full object-cover" alt="" />
-      </div>
-      <div className="absolute -left-12 top-0 w-56 h-56 opacity-[0.05] pointer-events-none rounded-full overflow-hidden">
+      <div className="absolute right-0 bottom-0 w-72 h-72 opacity-[0.07] pointer-events-none rounded-full overflow-hidden">
         <img src="https://cdn.poehali.dev/projects/216115a8-6f23-4b25-a72a-91c740414743/files/e2a1af37-06ef-4ec7-a9e7-6f0549e28cfc.jpg" className="w-full h-full object-cover" alt="" />
       </div>
 
-      <div className={`w-full max-w-sm animate-slide-up ${shake ? "animate-wiggle" : ""}`} style={{ position: "relative", zIndex: 10 }}>
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full mb-4 animate-pulse-glow"
-            style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)" }}>
+      <div className="w-full max-w-sm animate-slide-up" style={{ position: "relative", zIndex: 10 }}>
+        <div className="text-center mb-7">
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full mb-4 animate-pulse-glow" style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)" }}>
             <span className="text-4xl">🍎</span>
           </div>
-          <h1 style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif", fontSize: 46, fontStyle: "italic", fontWeight: 700, lineHeight: 1 }}>
-            Гранатовый
-          </h1>
-          <h2 style={{ color: "#8B1A2F", fontFamily: "Cormorant, serif", fontSize: 32, fontWeight: 600, lineHeight: 1.2 }}>
-            Дневник
-          </h2>
-          <p className="text-sm mt-2" style={{ color: "#9B6A7A" }}>Электронный школьный журнал</p>
+          <div style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif", fontSize: 44, fontStyle: "italic", fontWeight: 700, lineHeight: 1 }}>Гранатовый</div>
+          <div style={{ color: "#8B1A2F", fontFamily: "Cormorant, serif", fontSize: 30, fontWeight: 600 }}>Дневник</div>
+          <p className="text-sm mt-1.5" style={{ color: "#9B6A7A" }}>Электронный школьный журнал</p>
         </div>
 
         <div className="rounded-3xl p-7 shadow-2xl" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.1)" }}>
-          <div className="flex rounded-2xl p-1 mb-6" style={{ background: "#F5E0E5" }}>
+          <div className="flex rounded-2xl p-1 mb-5" style={{ background: "#F5E0E5" }}>
             {(["parent", "teacher"] as Role[]).map(r => (
               <button key={r} onClick={() => { setTab(r); setError(""); }}
                 className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all duration-200"
-                style={{
-                  background: tab === r ? "#8B1A2F" : "transparent",
-                  color: tab === r ? "white" : "#8B1A2F",
-                }}>
+                style={{ background: tab === r ? "#8B1A2F" : "transparent", color: tab === r ? "white" : "#8B1A2F" }}>
                 {r === "teacher" ? "👩‍🏫 Учитель" : "👨‍👩‍👧 Родитель"}
               </button>
             ))}
           </div>
-
-          <form onSubmit={tryLogin} className="space-y-4">
-            <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: "#9B6A7A" }}>
-                {tab === "parent" ? "Логин" : "Ваше имя"}
-              </label>
-              <input
-                value={loginVal} onChange={e => setLoginVal(e.target.value)}
-                placeholder={tab === "parent" ? "parent1" : "Анна Сергеевна"}
-                className="w-full px-4 py-3 rounded-xl text-sm outline-none"
-                style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.15)", color: "#3D1520" }}
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium mb-1.5" style={{ color: "#9B6A7A" }}>Пароль</label>
-              <input
-                type="password" value={pass} onChange={e => setPass(e.target.value)}
-                placeholder="••••••••"
-                className="w-full px-4 py-3 rounded-xl text-sm outline-none"
-                style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.15)", color: "#3D1520" }}
-              />
-            </div>
-
+          <form onSubmit={submit} className="space-y-3">
+            <Field label={tab === "parent" ? "Логин" : "Ваше имя"}>
+              <Input value={login} onChange={e => setLogin(e.target.value)} placeholder={tab === "parent" ? "parent1" : "Анна Сергеевна"} />
+            </Field>
+            <Field label="Пароль">
+              <Input type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="••••••••" />
+            </Field>
             {error && (
-              <div className="flex items-center gap-2 p-3 rounded-xl"
-                style={{ background: "rgba(244,67,54,0.06)", border: "1px solid rgba(244,67,54,0.2)" }}>
-                <Icon name="AlertCircle" size={15} className="text-red-500 shrink-0" />
+              <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: "rgba(244,67,54,0.06)", border: "1px solid rgba(244,67,54,0.2)" }}>
+                <Icon name="AlertCircle" size={14} className="text-red-500 shrink-0" />
                 <span className="text-xs text-red-600">{error}</span>
               </div>
             )}
-
             <p className="text-xs text-center" style={{ color: "#9B6A7A" }}>
-              {tab === "parent"
-                ? <>Попробуйте: <b style={{ color: "#8B1A2F" }}>parent1</b> / <b style={{ color: "#8B1A2F" }}>parent1pass</b></>
-                : <>Пароль: <b style={{ color: "#8B1A2F" }}>teacher2024</b></>}
+              {tab === "parent" ? <><b style={{ color: "#8B1A2F" }}>parent1</b> / <b style={{ color: "#8B1A2F" }}>parent1pass</b></> : <>Пароль: <b style={{ color: "#8B1A2F" }}>teacher2024</b></>}
             </p>
-
-            <button type="submit"
-              className="w-full py-3.5 rounded-xl font-semibold text-sm transition-all hover:opacity-90 active:scale-95"
-              style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)", color: "white", boxShadow: "0 8px 24px rgba(139,26,47,0.3)" }}>
-              Войти в дневник 🍎
-            </button>
+            <SaveBtn label={loading ? "Входим..." : "Войти в дневник 🍎"} loading={loading} />
           </form>
         </div>
       </div>
@@ -273,93 +189,107 @@ function LoginScreen({ onLogin }: { onLogin: (role: Role, name: string, child?: 
 
 // ─── Main App ─────────────────────────────────────────────
 export default function Index() {
-  const [loggedIn, setLoggedIn] = useState(false);
-  const [role, setRole] = useState<Role>("parent");
-  const [userName, setUserName] = useState("");
-  const [childName, setChildName] = useState("");
-  const [section, setSection] = useState<Section>("schedule");
-  const [day, setDay] = useState("Понедельник");
+  const [user, setUser] = useState<User | null>(null);
+  const [classes, setClasses] = useState<SchoolClass[]>([]);
+  const [selectedClass, setSelectedClass] = useState<SchoolClass | null>(null);
+  const [tab, setTab] = useState<Tab>("schedule");
+  const [tabKey, setTabKey] = useState(0);
   const [showNotifs, setShowNotifs] = useState(false);
-  const [notifs, setNotifs] = useState<Notification[]>(INIT_NOTIFS);
-  const [key, setKey] = useState(0);
+  const [notifs, setNotifs] = useState<Notification[]>([]);
 
-  const unread = notifs.filter(n => !n.read).length;
+  const unread = notifs.filter(n => !n.is_read).length;
 
-  const login = (r: Role, name: string, child?: string) => {
-    setRole(r); setUserName(name);
-    if (child) setChildName(child);
-    setLoggedIn(true);
+  useEffect(() => {
+    if (user) {
+      api("get_classes").then(data => {
+        if (Array.isArray(data)) setClasses(data);
+      });
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (user?.role === "parent" && user.id) {
+      api(`get_notifications&parent_id=${user.id}`).then(data => {
+        if (Array.isArray(data)) setNotifs(data);
+      });
+    }
+  }, [user]);
+
+  // Для родителя — автовыбор класса ребёнка
+  useEffect(() => {
+    if (user?.role === "parent" && user.class_id && classes.length > 0) {
+      const cl = classes.find(c => c.id === user.class_id);
+      if (cl) setSelectedClass(cl);
+    }
+  }, [user, classes]);
+
+  const goTab = (t: Tab) => { setTab(t); setTabKey(k => k + 1); };
+
+  const markAllRead = async () => {
+    if (!user) return;
+    await api("mark_read", "POST", { parent_id: user.id });
+    setNotifs(prev => prev.map(n => ({ ...n, is_read: true })));
   };
 
-  const logout = () => { setLoggedIn(false); setShowNotifs(false); };
+  if (!user) return <LoginScreen onLogin={setUser} />;
 
-  const go = (s: Section) => { setSection(s); setKey(k => k + 1); };
+  // Группируем классы по номеру
+  const gradeGroups: Record<number, SchoolClass[]> = {};
+  classes.forEach(c => {
+    if (!gradeGroups[c.grade]) gradeGroups[c.grade] = [];
+    gradeGroups[c.grade].push(c);
+  });
 
-  if (!loggedIn) return <LoginScreen onLogin={login} />;
-
-  const grades = role === "parent" ? GRADES.filter(g => g.student === childName) : GRADES;
-  const recs = role === "parent" ? RECOMMENDATIONS.filter(r => r.student === childName) : RECOMMENDATIONS;
+  const NAV = [
+    { id: "schedule" as Tab, label: "Расписание", emoji: "📅" },
+    { id: "homework" as Tab, label: "ДЗ", emoji: "📚" },
+    { id: "grades" as Tab, label: "Отметки", emoji: "⭐" },
+    { id: "files" as Tab, label: "Файлы", emoji: "📎" },
+    { id: "recommendations" as Tab, label: "Советы", emoji: "💬" },
+  ];
 
   return (
     <div className="min-h-screen" style={{ background: "#FDF6EE" }}>
-      {SEEDS.slice(0, 4).map((s, i) => <Seed key={i} {...s} />)}
+      {SEEDS.map((s, i) => <Seed key={i} {...s} />)}
 
       {/* Header */}
-      <header className="sticky top-0 z-50 border-b" style={{
-        background: "rgba(253,246,238,0.92)", backdropFilter: "blur(12px)",
-        borderColor: "rgba(139,26,47,0.12)"
-      }}>
-        <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
+      <header className="sticky top-0 z-50 border-b" style={{ background: "rgba(253,246,238,0.93)", backdropFilter: "blur(12px)", borderColor: "rgba(139,26,47,0.12)" }}>
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0"
-              style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)" }}>
-              <span className="text-xl">🍎</span>
+            <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)" }}>
+              <span className="text-lg">🍎</span>
             </div>
             <div>
-              <p className="font-bold text-lg leading-tight" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif" }}>Гранатовый Дневник</p>
+              <p className="font-bold leading-tight" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif", fontSize: 18 }}>Гранатовый Дневник</p>
               <p className="text-xs" style={{ color: "#9B6A7A" }}>
-                {role === "teacher" ? `👩‍🏫 ${userName}` : `👨‍👩‍👧 Родитель · ${childName}`}
+                {user.role === "teacher" ? `👩‍🏫 ${user.display_name || user.login}` : `👨‍👩‍👧 ${user.child}`}
+                {selectedClass && <span className="ml-1.5 px-1.5 py-0.5 rounded-md text-xs font-semibold" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{selectedClass.name}</span>}
               </p>
             </div>
           </div>
-
           <div className="flex items-center gap-2">
-            {role === "parent" && (
+            {user.role === "parent" && (
               <div className="relative">
-                <button onClick={() => setShowNotifs(!showNotifs)}
-                  className="relative w-10 h-10 rounded-full flex items-center justify-center transition-all hover:scale-110"
-                  style={{ background: showNotifs ? "#F5E0E5" : "transparent" }}>
-                  <Icon name="Bell" size={20} style={{ color: "#8B1A2F" }} />
-                  {unread > 0 && (
-                    <span className="absolute -top-0.5 -right-0.5 w-5 h-5 rounded-full flex items-center justify-center text-white font-bold animate-notification-pop"
-                      style={{ background: "#8B1A2F", fontSize: 10 }}>
-                      {unread}
-                    </span>
-                  )}
+                <button onClick={() => setShowNotifs(!showNotifs)} className="relative w-9 h-9 rounded-full flex items-center justify-center" style={{ background: showNotifs ? "#F5E0E5" : "transparent" }}>
+                  <Icon name="Bell" size={18} style={{ color: "#8B1A2F" }} />
+                  {unread > 0 && <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-white font-bold animate-notification-pop" style={{ background: "#8B1A2F", fontSize: 9 }}>{unread}</span>}
                 </button>
-
                 {showNotifs && (
-                  <div className="absolute right-0 top-12 w-80 rounded-2xl shadow-2xl overflow-hidden z-50 animate-slide-up"
-                    style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.12)" }}>
-                    <div className="flex items-center justify-between px-4 py-3 border-b" style={{ borderColor: "rgba(139,26,47,0.08)" }}>
-                      <span style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif", fontSize: 20, fontWeight: 700 }}>Уведомления</span>
-                      {unread > 0 && (
-                        <button onClick={() => setNotifs(n => n.map(x => ({ ...x, read: true })))}
-                          className="text-xs" style={{ color: "#8B1A2F" }}>
-                          Прочитать все
-                        </button>
-                      )}
+                  <div className="absolute right-0 top-11 w-72 rounded-2xl shadow-2xl overflow-hidden z-50 animate-slide-up" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.12)" }}>
+                    <div className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: "rgba(139,26,47,0.08)" }}>
+                      <span style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif", fontSize: 18, fontWeight: 700 }}>Уведомления</span>
+                      {unread > 0 && <button onClick={markAllRead} className="text-xs" style={{ color: "#8B1A2F" }}>Прочитать все</button>}
                     </div>
-                    <div className="max-h-72 overflow-y-auto">
+                    <div className="max-h-64 overflow-y-auto">
+                      {notifs.length === 0 && <p className="text-sm text-center py-6" style={{ color: "#9B6A7A" }}>Нет уведомлений</p>}
                       {notifs.map(n => (
-                        <div key={n.id} className="flex gap-3 px-4 py-3 border-b hover:bg-gray-50"
-                          style={{ borderColor: "rgba(139,26,47,0.05)", background: n.read ? "white" : "rgba(139,26,47,0.03)" }}>
-                          <span className="text-lg shrink-0">{NOTIF_EMOJI[n.type]}</span>
+                        <div key={n.id} className="flex gap-3 px-4 py-3 border-b" style={{ borderColor: "rgba(139,26,47,0.05)", background: n.is_read ? "white" : "rgba(139,26,47,0.03)" }}>
+                          <span className="text-base shrink-0">{NOTIF_EMOJI[n.type] || "📌"}</span>
                           <div className="flex-1 min-w-0">
-                            <p className="text-sm" style={{ color: "#3D1520", fontWeight: n.read ? 400 : 600 }}>{n.text}</p>
-                            <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{n.time}</p>
+                            <p className="text-sm leading-snug" style={{ color: "#3D1520", fontWeight: n.is_read ? 400 : 600 }}>{n.text}</p>
+                            <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{new Date(n.created_at).toLocaleDateString("ru")}</p>
                           </div>
-                          {!n.read && <div className="w-2 h-2 rounded-full mt-2 shrink-0" style={{ background: "#8B1A2F" }} />}
+                          {!n.is_read && <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: "#8B1A2F" }} />}
                         </div>
                       ))}
                     </div>
@@ -367,257 +297,127 @@ export default function Index() {
                 )}
               </div>
             )}
-            <button onClick={logout}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-medium"
-              style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
-              <Icon name="LogOut" size={14} /> Выйти
+            <button onClick={() => setUser(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
+              <Icon name="LogOut" size={13} /> Выйти
             </button>
           </div>
         </div>
       </header>
 
-      <div className="max-w-5xl mx-auto px-4 py-6 flex gap-6">
-        {/* Sidebar desktop */}
-        <aside className="w-52 shrink-0 hidden md:block">
-          <nav className="space-y-1.5 sticky top-24">
-            {NAV.map(item => (
-              <button key={item.id} onClick={() => go(item.id)}
-                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-left transition-all duration-200 hover:scale-[1.02]"
-                style={{
-                  background: section === item.id ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
-                  color: section === item.id ? "white" : "#3D1520",
-                  boxShadow: section === item.id ? "0 8px 20px rgba(139,26,47,0.25)" : "0 2px 8px rgba(0,0,0,0.04)",
-                  border: section === item.id ? "none" : "1.5px solid rgba(139,26,47,0.08)",
-                }}>
-                <span className="text-xl">{item.emoji}</span>
-                <span className="text-sm font-medium">{item.label}</span>
-              </button>
-            ))}
-            <div className="pt-5 flex justify-center">
-              <img src="https://cdn.poehali.dev/projects/216115a8-6f23-4b25-a72a-91c740414743/files/e2a1af37-06ef-4ec7-a9e7-6f0549e28cfc.jpg"
-                className="w-28 h-28 rounded-2xl object-cover"
-                style={{ opacity: 0.65, boxShadow: "0 4px 16px rgba(139,26,47,0.18)" }} alt="🍎" />
+      <div className="max-w-6xl mx-auto px-4 py-5 flex gap-5">
+        {/* Left sidebar: class picker */}
+        <aside className="w-44 shrink-0 hidden md:block">
+          <div className="sticky top-20 space-y-4">
+            {/* Классы */}
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-wider mb-2 px-1" style={{ color: "#9B6A7A" }}>Классы</p>
+              <div className="space-y-1">
+                {[1, 2, 3, 4, 5, 6, 7].map(grade => (
+                  <div key={grade}>
+                    <p className="text-xs font-semibold px-2 py-1" style={{ color: "#C4405A" }}>{grade} класс</p>
+                    <div className="flex gap-1 px-1">
+                      {(gradeGroups[grade] || []).map(cl => (
+                        <button key={cl.id} onClick={() => { setSelectedClass(cl); goTab("schedule"); }}
+                          className="flex-1 py-1.5 rounded-xl text-xs font-bold transition-all hover:scale-105"
+                          style={{
+                            background: selectedClass?.id === cl.id ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+                            color: selectedClass?.id === cl.id ? "white" : "#3D1520",
+                            border: "1.5px solid rgba(139,26,47,0.12)",
+                            boxShadow: selectedClass?.id === cl.id ? "0 4px 12px rgba(139,26,47,0.25)" : "none",
+                          }}>
+                          {cl.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
-          </nav>
+            {/* Гранат */}
+            <img src="https://cdn.poehali.dev/projects/216115a8-6f23-4b25-a72a-91c740414743/files/e2a1af37-06ef-4ec7-a9e7-6f0549e28cfc.jpg"
+              className="w-full rounded-2xl object-cover" style={{ opacity: 0.6, maxHeight: 120, boxShadow: "0 4px 16px rgba(139,26,47,0.15)" }} alt="" />
+          </div>
         </aside>
 
-        {/* Mobile nav */}
-        <div className="fixed bottom-0 left-0 right-0 z-50 md:hidden border-t"
-          style={{ background: "rgba(253,246,238,0.96)", backdropFilter: "blur(12px)", borderColor: "rgba(139,26,47,0.12)" }}>
-          <div className="flex justify-around py-2">
-            {NAV.map(item => (
-              <button key={item.id} onClick={() => go(item.id)}
-                className="flex flex-col items-center gap-0.5 px-1 py-1"
-                style={{ color: section === item.id ? "#8B1A2F" : "#9B6A7A" }}>
-                <span className="text-xl">{item.emoji}</span>
-                <span className="text-xs">{item.label.split(" ")[0]}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Content */}
-        <main className="flex-1 min-w-0 pb-24 md:pb-0" key={key}>
-
-          {/* ── SCHEDULE ── */}
-          {section === "schedule" && (
-            <div className="section-enter">
-              <SectionHeader emoji="📅" title="Расписание" sub="Учебная неделя · 7Б класс" />
-              <div className="flex gap-2 mb-5 flex-wrap">
-                {Object.keys(SCHEDULE).map(d => (
-                  <button key={d} onClick={() => setDay(d)}
-                    className="px-4 py-2 rounded-xl text-sm font-medium transition-all"
+        {/* Main area */}
+        <div className="flex-1 min-w-0 pb-24 md:pb-0">
+          {!selectedClass ? (
+            /* No class selected */
+            <div className="flex flex-col items-center justify-center min-h-64 text-center">
+              <div className="text-6xl mb-4">🍎</div>
+              <h2 className="text-3xl font-bold mb-2" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif" }}>Выберите класс</h2>
+              <p className="text-sm" style={{ color: "#9B6A7A" }}>Нажмите на класс в панели слева</p>
+              {/* Mobile class picker */}
+              <div className="mt-6 grid grid-cols-4 gap-2 md:hidden">
+                {classes.map(cl => (
+                  <button key={cl.id} onClick={() => { setSelectedClass(cl); goTab("schedule"); }}
+                    className="py-2 rounded-xl text-sm font-bold"
+                    style={{ background: "white", color: "#3D1520", border: "1.5px solid rgba(139,26,47,0.12)" }}>
+                    {cl.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <>
+              {/* Tab nav */}
+              <div className="flex gap-1.5 mb-5 overflow-x-auto pb-1">
+                {NAV.map(n => (
+                  <button key={n.id} onClick={() => goTab(n.id)}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all"
                     style={{
-                      background: day === d ? "#8B1A2F" : "white",
-                      color: day === d ? "white" : "#8B1A2F",
-                      border: "1.5px solid rgba(139,26,47,0.2)",
-                    }}>{d}</button>
+                      background: tab === n.id ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+                      color: tab === n.id ? "white" : "#3D1520",
+                      border: "1.5px solid rgba(139,26,47,0.1)",
+                      boxShadow: tab === n.id ? "0 4px 12px rgba(139,26,47,0.2)" : "none",
+                    }}>
+                    <span>{n.emoji}</span> {n.label}
+                  </button>
                 ))}
+                {/* Students tab (teacher only) */}
+                {user.role === "teacher" && (
+                  <button onClick={() => goTab("classes")}
+                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all"
+                    style={{
+                      background: tab === "classes" ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+                      color: tab === "classes" ? "white" : "#3D1520",
+                      border: "1.5px solid rgba(139,26,47,0.1)",
+                    }}>
+                    <span>👥</span> Ученики
+                  </button>
+                )}
               </div>
-              <div className="space-y-3">
-                {SCHEDULE[day]?.map((item, i) => (
-                  <div key={i} className="flex gap-4 p-4 rounded-2xl card-hover animate-slide-up"
-                    style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.07}s`, opacity: 0 }}>
-                    <div className="shrink-0">
-                      <span className="text-xs font-medium px-2 py-1 rounded-lg block"
-                        style={{ background: "#F5E0E5", color: "#8B1A2F", whiteSpace: "nowrap" }}>{item.time}</span>
-                    </div>
-                    <div className="flex-1">
-                      <p className="font-semibold text-sm" style={{ color: "#3D1520" }}>{item.subject}</p>
-                      <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{item.teacher}</p>
-                    </div>
-                    <span className="text-xs px-2 py-1 rounded-lg h-fit shrink-0"
-                      style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>🚪 {item.room}</span>
-                  </div>
-                ))}
-              </div>
-              {role === "teacher" && <AddButton label="Добавить урок" />}
-            </div>
-          )}
 
-          {/* ── HOMEWORK ── */}
-          {section === "homework" && (
-            <div className="section-enter">
-              <SectionHeader emoji="📚" title="Домашние задания" sub={`${HOMEWORK.length} задания`} />
-              <div className="space-y-4">
-                {HOMEWORK.map((hw, i) => (
-                  <div key={hw.id} className="p-5 rounded-2xl card-hover animate-slide-up"
-                    style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.09}s`, opacity: 0 }}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-2 flex-wrap">
-                          <span className="px-3 py-1 rounded-full text-xs font-semibold"
-                            style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{hw.subject}</span>
-                          <span className="text-xs" style={{ color: "#9B6A7A" }}>до {hw.dueDate}</span>
-                        </div>
-                        <p className="text-sm leading-relaxed" style={{ color: "#3D1520" }}>{hw.task}</p>
-                        {hw.files && hw.files.length > 0 && (
-                          <div className="flex gap-2 mt-3 flex-wrap">
-                            {hw.files.map((f, fi) => (
-                              <a key={fi} href="#"
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
-                                style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700", border: "1px solid rgba(212,168,67,0.3)" }}>
-                                <Icon name="Download" size={12} /> {f}
-                              </a>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      {role === "teacher" && (
-                        <div className="flex gap-1 shrink-0">
-                          <button className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-gray-100">
-                            <Icon name="Pencil" size={14} style={{ color: "#8B1A2F" }} />
-                          </button>
-                          <button className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-red-50">
-                            <Icon name="Trash2" size={14} className="text-red-400" />
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                ))}
+              {/* Tab content */}
+              <div key={`${selectedClass.id}-${tabKey}`} className="section-enter">
+                {tab === "schedule" && <ScheduleTab cls={selectedClass} user={user} />}
+                {tab === "homework" && <HomeworkTab cls={selectedClass} user={user} />}
+                {tab === "grades" && <GradesTab cls={selectedClass} user={user} />}
+                {tab === "files" && <FilesTab cls={selectedClass} />}
+                {tab === "recommendations" && <RecsTab cls={selectedClass} user={user} />}
+                {tab === "classes" && user.role === "teacher" && <StudentsTab cls={selectedClass} />}
               </div>
-              {role === "teacher" && <AddButton label="Добавить задание" />}
-            </div>
+            </>
           )}
+        </div>
+      </div>
 
-          {/* ── GRADES ── */}
-          {section === "grades" && (
-            <div className="section-enter">
-              <SectionHeader emoji="⭐" title="Отметки" sub={role === "parent" ? `Ученик: ${childName}` : "Все ученики"} />
-              {grades.length > 0 && (
-                <div className="grid grid-cols-3 gap-3 mb-5">
-                  {[5, 4, 3].map(g => (
-                    <div key={g} className={`p-4 rounded-2xl text-center grade-${g}`}>
-                      <div className="text-3xl font-bold" style={{ fontFamily: "Cormorant, serif" }}>
-                        {grades.filter(gr => gr.grade === g).length}
-                      </div>
-                      <div className="text-xs font-medium mt-0.5">отметок «{g}»</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="space-y-3">
-                {grades.map((g, i) => (
-                  <div key={g.id} className="flex items-start gap-4 p-4 rounded-2xl card-hover animate-slide-up"
-                    style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.07}s`, opacity: 0 }}>
-                    <GradeBadge grade={g.grade} />
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <span className="font-semibold text-sm" style={{ color: "#3D1520" }}>{g.subject}</span>
-                        {role === "teacher" && (
-                          <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{g.student}</span>
-                        )}
-                      </div>
-                      <p className="text-sm" style={{ color: "#9B6A7A" }}>{g.comment}</p>
-                    </div>
-                    <span className="text-xs shrink-0" style={{ color: "#9B6A7A" }}>{g.date}</span>
-                  </div>
-                ))}
-              </div>
-              {role === "teacher" && <AddButton label="Поставить отметку" />}
-            </div>
+      {/* Mobile bottom nav */}
+      <div className="fixed bottom-0 left-0 right-0 z-50 md:hidden border-t" style={{ background: "rgba(253,246,238,0.96)", backdropFilter: "blur(12px)", borderColor: "rgba(139,26,47,0.12)" }}>
+        <div className="flex justify-around py-2">
+          {NAV.map(n => (
+            <button key={n.id} onClick={() => goTab(n.id)} className="flex flex-col items-center gap-0.5 px-1" style={{ color: tab === n.id ? "#8B1A2F" : "#9B6A7A" }}>
+              <span className="text-xl">{n.emoji}</span>
+              <span className="text-xs">{n.label}</span>
+            </button>
+          ))}
+          {user.role === "teacher" && (
+            <button onClick={() => goTab("classes")} className="flex flex-col items-center gap-0.5 px-1" style={{ color: tab === "classes" ? "#8B1A2F" : "#9B6A7A" }}>
+              <span className="text-xl">👥</span>
+              <span className="text-xs">Ученики</span>
+            </button>
           )}
-
-          {/* ── FILES ── */}
-          {section === "files" && (
-            <div className="section-enter">
-              <SectionHeader emoji="📎" title="Файлы" sub={`${FILES.length} материала`} />
-              {role === "teacher" && (
-                <div className="p-5 rounded-2xl mb-5 border-2 border-dashed text-center cursor-pointer hover:opacity-80 transition-all"
-                  style={{ borderColor: "rgba(139,26,47,0.25)", background: "rgba(139,26,47,0.015)" }}>
-                  <Icon name="Upload" size={28} style={{ color: "#8B1A2F", margin: "0 auto 8px" }} />
-                  <p className="text-sm font-medium" style={{ color: "#8B1A2F" }}>Загрузить файл</p>
-                  <p className="text-xs mt-1" style={{ color: "#9B6A7A" }}>PDF, DOCX, PPTX, JPG — до 50 МБ</p>
-                </div>
-              )}
-              <div className="space-y-3">
-                {FILES.map((f, i) => (
-                  <div key={f.id} className="flex items-center gap-4 p-4 rounded-2xl card-hover animate-slide-up"
-                    style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.08}s`, opacity: 0 }}>
-                    <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl shrink-0"
-                      style={{ background: "#F5E0E5" }}>
-                      {f.name.endsWith(".pdf") ? "📄" : f.name.endsWith(".pptx") ? "📊" : "📝"}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="font-medium text-sm truncate" style={{ color: "#3D1520" }}>{f.name}</p>
-                      <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{f.uploadedBy} · {f.date} · {f.size}</p>
-                      <span className="text-xs px-2 py-0.5 rounded-full inline-block mt-1" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
-                        {f.subject}
-                      </span>
-                    </div>
-                    <button className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 hover:scale-110 transition-all"
-                      style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)" }}>
-                      <Icon name="Download" size={16} style={{ color: "white" }} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* ── RECOMMENDATIONS ── */}
-          {section === "recommendations" && (
-            <div className="section-enter">
-              <SectionHeader emoji="💬" title="Рекомендации" sub={role === "parent" ? `Для: ${childName}` : "Все рекомендации"} />
-              <div className="space-y-4">
-                {recs.map((rec, i) => (
-                  <div key={rec.id} className="p-5 rounded-2xl card-hover animate-slide-up"
-                    style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.1}s`, opacity: 0 }}>
-                    <div className="flex items-start gap-3 mb-3">
-                      <div className="w-10 h-10 rounded-full flex items-center justify-center shrink-0 text-lg"
-                        style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)" }}>
-                        👩‍🏫
-                      </div>
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-semibold text-sm" style={{ color: "#3D1520" }}>{rec.teacher}</span>
-                          <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{rec.subject}</span>
-                          {role === "teacher" && (
-                            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(212,168,67,0.15)", color: "#7A5700" }}>{rec.student}</span>
-                          )}
-                        </div>
-                        <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{rec.date}</p>
-                      </div>
-                    </div>
-                    <p className="text-sm leading-relaxed" style={{ color: "#3D1520", lineHeight: 1.75, paddingLeft: 52 }}>
-                      {rec.text}
-                    </p>
-                    {role === "teacher" && (
-                      <div className="flex gap-2 mt-3" style={{ paddingLeft: 52 }}>
-                        <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium"
-                          style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
-                          <Icon name="Pencil" size={12} /> Редактировать
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-              {role === "teacher" && <AddButton label="Написать рекомендацию" />}
-            </div>
-          )}
-        </main>
+        </div>
       </div>
 
       {showNotifs && <div className="fixed inset-0 z-40" onClick={() => setShowNotifs(false)} />}
@@ -625,25 +425,470 @@ export default function Index() {
   );
 }
 
-// ─── Helpers ─────────────────────────────────────────────
-function SectionHeader({ emoji, title, sub }: { emoji: string; title: string; sub: string }) {
+// ─── Schedule Tab ──────────────────────────────────────────
+function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
+  const [items, setItems] = useState<ScheduleItem[]>([]);
+  const [day, setDay] = useState("Понедельник");
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<ScheduleItem | null>(null);
+  const [form, setForm] = useState({ day_of_week: "Понедельник", time_slot: "08:00–08:45", subject: "", teacher_name: "", room: "" });
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const data = await api(`get_schedule&class_id=${cls.id}`);
+    if (Array.isArray(data)) setItems(data);
+    setLoading(false);
+  }, [cls.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const dayItems = items.filter(i => i.day_of_week === day).sort((a, b) => a.sort_order - b.sort_order);
+
+  const openEdit = (item: ScheduleItem) => {
+    setEditing(item);
+    setForm({ day_of_week: item.day_of_week, time_slot: item.time_slot, subject: item.subject, teacher_name: item.teacher_name, room: item.room });
+    setShowAdd(true);
+  };
+
+  const openAdd = () => {
+    setEditing(null);
+    setForm({ day_of_week: day, time_slot: "08:00–08:45", subject: "", teacher_name: "", room: "" });
+    setShowAdd(true);
+  };
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    if (editing) {
+      await api("update_schedule", "POST", { ...form, id: editing.id });
+    } else {
+      await api("add_schedule", "POST", { ...form, class_id: cls.id });
+    }
+    setSaving(false);
+    setShowAdd(false);
+    load();
+  };
+
+  const del = async (id: number) => {
+    await api("delete_schedule", "POST", { id });
+    load();
+  };
+
   return (
-    <div className="flex items-center gap-3 mb-6">
-      <div className="w-12 h-12 rounded-2xl flex items-center justify-center text-2xl shrink-0"
-        style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)" }}>{emoji}</div>
-      <div>
-        <h2 className="text-3xl font-bold" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif" }}>{title}</h2>
-        <p className="text-sm" style={{ color: "#9B6A7A" }}>{sub}</p>
+    <div>
+      <SectionTitle emoji="📅" title={`Расписание · ${cls.name}`} sub="Учебная неделя" />
+      <div className="flex gap-2 mb-4 flex-wrap">
+        {DAYS.map(d => (
+          <button key={d} onClick={() => setDay(d)}
+            className="px-3 py-1.5 rounded-xl text-sm font-medium transition-all"
+            style={{ background: day === d ? "#8B1A2F" : "white", color: day === d ? "white" : "#8B1A2F", border: "1.5px solid rgba(139,26,47,0.2)" }}>
+            {d}
+          </button>
+        ))}
       </div>
+
+      {loading ? <Loader /> : (
+        <div className="space-y-3">
+          {dayItems.length === 0 && <Empty text="Уроки не добавлены" />}
+          {dayItems.map((item, i) => (
+            <div key={item.id} className="flex gap-3 items-center p-4 rounded-2xl card-hover animate-slide-up"
+              style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.06}s`, opacity: 0 }}>
+              <span className="text-xs font-medium px-2 py-1 rounded-lg shrink-0" style={{ background: "#F5E0E5", color: "#8B1A2F", whiteSpace: "nowrap" }}>{item.time_slot}</span>
+              <div className="flex-1">
+                <p className="font-semibold text-sm" style={{ color: "#3D1520" }}>{item.subject}</p>
+                <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{item.teacher_name}</p>
+              </div>
+              <span className="text-xs px-2 py-1 rounded-lg shrink-0" style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>🚪 {item.room}</span>
+              {user.role === "teacher" && (
+                <div className="flex gap-1">
+                  <button onClick={() => openEdit(item)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100"><Icon name="Pencil" size={13} style={{ color: "#8B1A2F" }} /></button>
+                  <button onClick={() => del(item.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50"><Icon name="Trash2" size={13} className="text-red-400" /></button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {user.role === "teacher" && <AddBtn label="Добавить урок" onClick={openAdd} />}
+
+      {showAdd && (
+        <Modal title={editing ? "Редактировать урок" : "Новый урок"} onClose={() => setShowAdd(false)}>
+          <form onSubmit={save} className="space-y-3">
+            <Field label="День недели">
+              <Select value={form.day_of_week} onChange={e => setForm(f => ({ ...f, day_of_week: e.target.value }))}>
+                {DAYS.map(d => <option key={d}>{d}</option>)}
+              </Select>
+            </Field>
+            <Field label="Время"><Input value={form.time_slot} onChange={e => setForm(f => ({ ...f, time_slot: e.target.value }))} placeholder="08:00–08:45" /></Field>
+            <Field label="Предмет"><Input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="Математика" required /></Field>
+            <Field label="Учитель"><Input value={form.teacher_name} onChange={e => setForm(f => ({ ...f, teacher_name: e.target.value }))} placeholder="Анна Сергеевна" required /></Field>
+            <Field label="Кабинет"><Input value={form.room} onChange={e => setForm(f => ({ ...f, room: e.target.value }))} placeholder="305" required /></Field>
+            <SaveBtn loading={saving} />
+          </form>
+        </Modal>
+      )}
     </div>
   );
 }
 
-function AddButton({ label }: { label: string }) {
+// ─── Students Tab ──────────────────────────────────────────
+function StudentsTab({ cls }: { cls: SchoolClass }) {
+  const [students, setStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const data = await api(`get_students&class_id=${cls.id}`);
+    if (Array.isArray(data)) setStudents(data);
+    setLoading(false);
+  }, [cls.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    await api("add_student", "POST", { full_name: name, class_id: cls.id });
+    setSaving(false);
+    setShowAdd(false);
+    setName("");
+    load();
+  };
+
   return (
-    <button className="mt-4 w-full py-3 rounded-2xl text-sm font-medium border-2 border-dashed transition-all hover:opacity-70"
-      style={{ borderColor: "rgba(139,26,47,0.25)", color: "#8B1A2F" }}>
-      + {label}
-    </button>
+    <div>
+      <SectionTitle emoji="👥" title={`Ученики · ${cls.name}`} sub={`${students.length} учеников`} />
+      {loading ? <Loader /> : (
+        <div className="space-y-2">
+          {students.length === 0 && <Empty text="Список пуст — добавьте первого ученика" />}
+          {students.map((s, i) => (
+            <div key={s.id} className="flex items-center gap-3 px-4 py-3 rounded-2xl animate-slide-up card-hover"
+              style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.05}s`, opacity: 0 }}>
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0" style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)", color: "white" }}>
+                {s.full_name.charAt(0)}
+              </div>
+              <p className="font-medium text-sm" style={{ color: "#3D1520" }}>{s.full_name}</p>
+            </div>
+          ))}
+        </div>
+      )}
+      <AddBtn label="Добавить ученика" onClick={() => setShowAdd(true)} />
+
+      {showAdd && (
+        <Modal title="Новый ученик" onClose={() => setShowAdd(false)}>
+          <form onSubmit={save} className="space-y-3">
+            <Field label="Имя и фамилия"><Input value={name} onChange={e => setName(e.target.value)} placeholder="Иван Петров" required /></Field>
+            <SaveBtn loading={saving} />
+          </form>
+        </Modal>
+      )}
+    </div>
   );
+}
+
+// ─── Homework Tab ──────────────────────────────────────────
+function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
+  const [items, setItems] = useState<Homework[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<Homework | null>(null);
+  const [form, setForm] = useState({ subject: "", task: "", due_date: "" });
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const data = await api(`get_homework&class_id=${cls.id}`);
+    if (Array.isArray(data)) setItems(data);
+    setLoading(false);
+  }, [cls.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const openAdd = () => { setEditing(null); setForm({ subject: "", task: "", due_date: "" }); setShowAdd(true); };
+  const openEdit = (hw: Homework) => { setEditing(hw); setForm({ subject: hw.subject, task: hw.task, due_date: hw.due_date }); setShowAdd(true); };
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    if (editing) {
+      await api("update_homework", "POST", { ...form, id: editing.id });
+    } else {
+      await api("add_homework", "POST", { ...form, class_id: cls.id, teacher_id: user.id });
+    }
+    setSaving(false); setShowAdd(false); load();
+  };
+
+  return (
+    <div>
+      <SectionTitle emoji="📚" title={`Домашние задания · ${cls.name}`} sub={`${items.length} заданий`} />
+      {loading ? <Loader /> : (
+        <div className="space-y-3">
+          {items.length === 0 && <Empty text="Заданий нет" />}
+          {items.map((hw, i) => (
+            <div key={hw.id} className="p-4 rounded-2xl card-hover animate-slide-up"
+              style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.07}s`, opacity: 0 }}>
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                    <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{hw.subject}</span>
+                    <span className="text-xs" style={{ color: "#9B6A7A" }}>до {hw.due_date}</span>
+                  </div>
+                  <p className="text-sm leading-relaxed" style={{ color: "#3D1520" }}>{hw.task}</p>
+                </div>
+                {user.role === "teacher" && (
+                  <button onClick={() => openEdit(hw)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 shrink-0">
+                    <Icon name="Pencil" size={13} style={{ color: "#8B1A2F" }} />
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+      {user.role === "teacher" && <AddBtn label="Добавить задание" onClick={openAdd} />}
+
+      {showAdd && (
+        <Modal title={editing ? "Редактировать ДЗ" : "Новое задание"} onClose={() => setShowAdd(false)}>
+          <form onSubmit={save} className="space-y-3">
+            <Field label="Предмет"><Input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="Математика" required /></Field>
+            <Field label="Задание"><Textarea rows={4} value={form.task} onChange={e => setForm(f => ({ ...f, task: e.target.value }))} placeholder="Опишите задание..." required /></Field>
+            <Field label="Срок сдачи"><Input value={form.due_date} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))} placeholder="14 мая" required /></Field>
+            <SaveBtn loading={saving} />
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── Grades Tab ────────────────────────────────────────────
+function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
+  const [grades, setGrades] = useState<Grade[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ student_id: "", subject: "", grade: "5", comment: "", grade_date: "" });
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const query = user.role === "parent" && user.child_id ? `student_id=${user.child_id}` : `class_id=${cls.id}`;
+    const [g, s] = await Promise.all([
+      api(`get_grades&${query}`),
+      user.role === "teacher" ? api(`get_students&class_id=${cls.id}`) : Promise.resolve([]),
+    ]);
+    if (Array.isArray(g)) setGrades(g);
+    if (Array.isArray(s)) setStudents(s);
+    setLoading(false);
+  }, [cls.id, user]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    await api("add_grade", "POST", { ...form, grade: Number(form.grade), teacher_id: user.id, class_id: cls.id });
+    setSaving(false); setShowAdd(false); load();
+  };
+
+  const stats = [5, 4, 3, 2].map(g => ({ g, count: grades.filter(gr => gr.grade === g).length })).filter(x => x.count > 0);
+
+  return (
+    <div>
+      <SectionTitle emoji="⭐" title={`Отметки · ${cls.name}`} sub={user.role === "parent" ? user.child : undefined} />
+      {!loading && stats.length > 0 && (
+        <div className="flex gap-2 mb-4 flex-wrap">
+          {stats.map(({ g, count }) => (
+            <div key={g} className={`px-4 py-2 rounded-2xl grade-${g} flex items-center gap-2`}>
+              <span className="text-xl font-bold" style={{ fontFamily: "Cormorant, serif" }}>{g}</span>
+              <span className="text-sm font-medium">× {count}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {loading ? <Loader /> : (
+        <div className="space-y-3">
+          {grades.length === 0 && <Empty text="Отметок нет" />}
+          {grades.map((g, i) => (
+            <div key={g.id} className="flex items-start gap-3 p-4 rounded-2xl card-hover animate-slide-up"
+              style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.06}s`, opacity: 0 }}>
+              <GradeBadge grade={g.grade} />
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                  <span className="font-semibold text-sm" style={{ color: "#3D1520" }}>{g.subject}</span>
+                  {user.role === "teacher" && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{g.student_name}</span>}
+                </div>
+                {g.comment && <p className="text-sm" style={{ color: "#9B6A7A" }}>{g.comment}</p>}
+              </div>
+              <span className="text-xs shrink-0" style={{ color: "#9B6A7A" }}>{g.grade_date}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {user.role === "teacher" && (
+        <>
+          <AddBtn label="Поставить отметку" onClick={() => setShowAdd(true)} />
+          {showAdd && (
+            <Modal title="Новая отметка" onClose={() => setShowAdd(false)}>
+              <form onSubmit={save} className="space-y-3">
+                <Field label="Ученик">
+                  <Select value={form.student_id} onChange={e => setForm(f => ({ ...f, student_id: e.target.value }))} required>
+                    <option value="">Выберите ученика</option>
+                    {students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Предмет"><Input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="Математика" required /></Field>
+                <Field label="Отметка">
+                  <Select value={form.grade} onChange={e => setForm(f => ({ ...f, grade: e.target.value }))}>
+                    {[5, 4, 3, 2, 1].map(g => <option key={g} value={g}>{g}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Комментарий"><Input value={form.comment} onChange={e => setForm(f => ({ ...f, comment: e.target.value }))} placeholder="Необязательно" /></Field>
+                <Field label="Дата"><Input value={form.grade_date} onChange={e => setForm(f => ({ ...f, grade_date: e.target.value }))} placeholder="13 мая" required /></Field>
+                <SaveBtn loading={saving} />
+              </form>
+            </Modal>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Files Tab ─────────────────────────────────────────────
+function FilesTab({ cls }: { cls: SchoolClass }) {
+  const [files, setFiles] = useState<FileItem[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api(`get_files&class_id=${cls.id}`).then(data => {
+      if (Array.isArray(data)) setFiles(data);
+      setLoading(false);
+    });
+  }, [cls.id]);
+
+  return (
+    <div>
+      <SectionTitle emoji="📎" title={`Файлы · ${cls.name}`} sub={`${files.length} материалов`} />
+      {loading ? <Loader /> : (
+        <div className="space-y-3">
+          {files.length === 0 && <Empty text="Файлы не загружены" />}
+          {files.map((f, i) => (
+            <div key={f.id} className="flex items-center gap-3 p-4 rounded-2xl card-hover animate-slide-up"
+              style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.07}s`, opacity: 0 }}>
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center text-2xl shrink-0" style={{ background: "#F5E0E5" }}>
+                {f.name?.endsWith(".pdf") ? "📄" : f.name?.endsWith(".pptx") ? "📊" : "📝"}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm truncate" style={{ color: "#3D1520" }}>{f.name}</p>
+                <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{f.teacher_name} · {f.upload_date} · {f.size_label}</p>
+                <span className="text-xs px-2 py-0.5 rounded-full inline-block mt-1" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{f.subject}</span>
+              </div>
+              <button className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 hover:scale-110 transition-all"
+                style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)" }}>
+                <Icon name="Download" size={15} style={{ color: "white" }} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Recommendations Tab ───────────────────────────────────
+function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
+  const [recs, setRecs] = useState<Recommendation[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ student_id: "", subject: "", text: "", rec_date: "" });
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const query = user.role === "parent" && user.child_id ? `student_id=${user.child_id}` : `class_id=${cls.id}`;
+    const [r, s] = await Promise.all([
+      api(`get_recommendations&${query}`),
+      user.role === "teacher" ? api(`get_students&class_id=${cls.id}`) : Promise.resolve([]),
+    ]);
+    if (Array.isArray(r)) setRecs(r);
+    if (Array.isArray(s)) setStudents(s);
+    setLoading(false);
+  }, [cls.id, user]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    await api("add_recommendation", "POST", { ...form, teacher_id: user.id, class_id: cls.id, teacher_name: user.display_name || user.login });
+    setSaving(false); setShowAdd(false); load();
+  };
+
+  return (
+    <div>
+      <SectionTitle emoji="💬" title={`Рекомендации · ${cls.name}`} sub={user.role === "parent" ? user.child : undefined} />
+      {loading ? <Loader /> : (
+        <div className="space-y-4">
+          {recs.length === 0 && <Empty text="Рекомендаций нет" />}
+          {recs.map((rec, i) => (
+            <div key={rec.id} className="p-5 rounded-2xl card-hover animate-slide-up"
+              style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.08}s`, opacity: 0 }}>
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-lg" style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)" }}>👩‍🏫</div>
+                <div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-semibold text-sm" style={{ color: "#3D1520" }}>{rec.teacher_name}</span>
+                    <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{rec.subject}</span>
+                    {user.role === "teacher" && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "rgba(212,168,67,0.15)", color: "#7A5700" }}>{rec.student_name}</span>}
+                  </div>
+                  <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{rec.rec_date}</p>
+                </div>
+              </div>
+              <p className="text-sm leading-relaxed" style={{ color: "#3D1520", lineHeight: 1.75 }}>{rec.text}</p>
+            </div>
+          ))}
+        </div>
+      )}
+      {user.role === "teacher" && (
+        <>
+          <AddBtn label="Написать рекомендацию" onClick={() => setShowAdd(true)} />
+          {showAdd && (
+            <Modal title="Новая рекомендация" onClose={() => setShowAdd(false)}>
+              <form onSubmit={save} className="space-y-3">
+                <Field label="Ученик">
+                  <Select value={form.student_id} onChange={e => setForm(f => ({ ...f, student_id: e.target.value }))} required>
+                    <option value="">Выберите ученика</option>
+                    {students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Предмет"><Input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="Математика" required /></Field>
+                <Field label="Текст рекомендации"><Textarea rows={5} value={form.text} onChange={e => setForm(f => ({ ...f, text: e.target.value }))} placeholder="Напишите рекомендацию..." required /></Field>
+                <Field label="Дата"><Input value={form.rec_date} onChange={e => setForm(f => ({ ...f, rec_date: e.target.value }))} placeholder="13 мая" required /></Field>
+                <SaveBtn loading={saving} />
+              </form>
+            </Modal>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Utils ─────────────────────────────────────────────────
+function Loader() {
+  return (
+    <div className="flex justify-center py-12">
+      <div className="w-8 h-8 rounded-full border-2 border-t-transparent animate-spin" style={{ borderColor: "rgba(139,26,47,0.3)", borderTopColor: "#8B1A2F" }} />
+    </div>
+  );
+}
+function Empty({ text }: { text: string }) {
+  return <div className="py-10 text-center text-sm" style={{ color: "#9B6A7A" }}>{text}</div>;
 }

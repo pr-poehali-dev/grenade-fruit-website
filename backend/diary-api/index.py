@@ -1,6 +1,6 @@
 """
 Главный API для Гранатового Дневника.
-Обрабатывает авторизацию, CRUD для всех разделов.
+Авторизация, классы, ученики, расписание, ДЗ, отметки, файлы, рекомендации, уведомления.
 """
 import os
 import json
@@ -11,7 +11,7 @@ SCHEMA = os.environ.get("MAIN_DB_SCHEMA", "public")
 CORS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, X-User-Id, X-Auth-Token, X-Session-Id",
+    "Access-Control-Allow-Headers": "Content-Type, X-User-Id, X-Auth-Token",
     "Access-Control-Max-Age": "86400",
 }
 
@@ -21,11 +21,19 @@ def get_conn():
 
 
 def ok(data, status=200):
-    return {"statusCode": status, "headers": {**CORS, "Content-Type": "application/json"}, "body": json.dumps(data, ensure_ascii=False, default=str)}
+    return {
+        "statusCode": status,
+        "headers": {**CORS, "Content-Type": "application/json"},
+        "body": json.dumps(data, ensure_ascii=False, default=str),
+    }
 
 
 def err(msg, status=400):
-    return {"statusCode": status, "headers": {**CORS, "Content-Type": "application/json"}, "body": json.dumps({"error": msg}, ensure_ascii=False)}
+    return {
+        "statusCode": status,
+        "headers": {**CORS, "Content-Type": "application/json"},
+        "body": json.dumps({"error": msg}, ensure_ascii=False),
+    }
 
 
 def handler(event: dict, context) -> dict:
@@ -33,7 +41,7 @@ def handler(event: dict, context) -> dict:
         return {"statusCode": 200, "headers": CORS, "body": ""}
 
     method = event.get("httpMethod", "GET")
-    path = event.get("path", "/")
+    path = event.get("path", "/").rstrip("/")
     body = {}
     if event.get("body"):
         try:
@@ -41,113 +49,165 @@ def handler(event: dict, context) -> dict:
         except Exception:
             pass
     params = event.get("queryStringParameters") or {}
+    # Роутинг через ?action= (один endpoint — одна cloud function)
+    action = params.get("action") or body.get("action", "")
 
-    # POST /login
-    if method == "POST" and path.endswith("/login"):
+    if action == "login":
         return handle_login(body)
-
-    # GET /schedule
-    if method == "GET" and path.endswith("/schedule"):
+    if action == "get_classes":
+        return handle_get_classes()
+    if action == "get_students":
+        return handle_get_students(params)
+    if action == "add_student":
+        return handle_add_student(body)
+    if action == "get_schedule":
         return handle_get_schedule(params)
-
-    # POST /schedule (teacher only)
-    if method == "POST" and path.endswith("/schedule"):
+    if action == "add_schedule":
         return handle_add_schedule(body)
-
-    # GET /homework
-    if method == "GET" and path.endswith("/homework"):
-        return handle_get_homework()
-
-    # POST /homework
-    if method == "POST" and path.endswith("/homework"):
+    if action == "update_schedule":
+        return handle_update_schedule(body.get("id"), body)
+    if action == "delete_schedule":
+        return handle_delete_schedule(body.get("id"))
+    if action == "get_homework":
+        return handle_get_homework(params)
+    if action == "add_homework":
         return handle_add_homework(body)
-
-    # PUT /homework
-    if method == "PUT" and "/homework/" in path:
-        hw_id = path.rstrip("/").split("/")[-1]
-        return handle_update_homework(hw_id, body)
-
-    # GET /grades
-    if method == "GET" and path.endswith("/grades"):
+    if action == "update_homework":
+        return handle_update_homework(body.get("id"), body)
+    if action == "get_grades":
         return handle_get_grades(params)
-
-    # POST /grades
-    if method == "POST" and path.endswith("/grades"):
+    if action == "add_grade":
         return handle_add_grade(body)
-
-    # GET /files
-    if method == "GET" and path.endswith("/files"):
-        return handle_get_files()
-
-    # GET /recommendations
-    if method == "GET" and path.endswith("/recommendations"):
+    if action == "get_files":
+        return handle_get_files(params)
+    if action == "get_recommendations":
         return handle_get_recommendations(params)
-
-    # POST /recommendations
-    if method == "POST" and path.endswith("/recommendations"):
+    if action == "add_recommendation":
         return handle_add_recommendation(body)
-
-    # GET /notifications
-    if method == "GET" and path.endswith("/notifications"):
+    if action == "get_notifications":
         return handle_get_notifications(params)
-
-    # POST /notifications/read
-    if method == "POST" and path.endswith("/notifications/read"):
+    if action == "mark_read":
         return handle_mark_read(body)
 
-    # GET /students
-    if method == "GET" and path.endswith("/students"):
-        return handle_get_students()
+    # Healthcheck
+    if method == "GET" and not action:
+        return ok({"status": "ok", "service": "diary-api"})
 
-    return err("Not found", 404)
+    return err("Unknown action", 400)
 
 
 # ── Auth ──────────────────────────────────────────────────
 def handle_login(body):
-    login = body.get("login", "").strip()
-    password = body.get("password", "").strip()
+    login = (body.get("login") or "").strip()
+    password = (body.get("password") or "").strip()
     if not login or not password:
         return err("Укажите логин и пароль")
 
-    # Учитель — общий пароль
-    if password == "teacher2024":
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute(f"SELECT id, login, display_name, role FROM {SCHEMA}.users WHERE login = %s AND role = 'teacher'", (login,))
-        user = cur.fetchone()
-        conn.close()
-        if user:
-            return ok({"id": user["id"], "login": user["login"], "role": user["role"], "display_name": user["display_name"], "child": None, "child_id": None})
-        # Создаём нового учителя
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute(f"INSERT INTO {SCHEMA}.users (login, password_hash, role, display_name) VALUES (%s, %s, 'teacher', %s) RETURNING id, login, display_name, role",
-                    (login, "teacher2024", login))
-        user = cur.fetchone()
-        conn.commit()
-        conn.close()
-        return ok({"id": user["id"], "login": user["login"], "role": user["role"], "display_name": user["display_name"], "child": None, "child_id": None})
-
-    # Родитель
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(f"SELECT u.id, u.login, u.display_name, u.role, s.full_name as child, s.id as child_id FROM {SCHEMA}.users u JOIN {SCHEMA}.parent_students ps ON ps.parent_id = u.id JOIN {SCHEMA}.students s ON s.id = ps.student_id WHERE u.login = %s AND u.password_hash = %s AND u.role = 'parent'", (login, password))
+
+    if password == "teacher2024":
+        cur.execute(
+            f"SELECT id, login, display_name, role FROM {SCHEMA}.users WHERE login = %s AND role = 'teacher'",
+            (login,)
+        )
+        user = cur.fetchone()
+        if not user:
+            cur.execute(
+                f"INSERT INTO {SCHEMA}.users (login, password_hash, role, display_name) VALUES (%s, %s, 'teacher', %s) RETURNING id, login, display_name, role",
+                (login, "teacher2024", login)
+            )
+            user = cur.fetchone()
+            conn.commit()
+        conn.close()
+        return ok({"id": user["id"], "login": user["login"], "role": user["role"],
+                   "display_name": user["display_name"], "child": None, "child_id": None, "class_id": None})
+
+    cur.execute(
+        f"""SELECT u.id, u.login, u.display_name, u.role,
+               s.full_name as child, s.id as child_id, s.class_id
+           FROM {SCHEMA}.users u
+           JOIN {SCHEMA}.parent_students ps ON ps.parent_id = u.id
+           JOIN {SCHEMA}.students s ON s.id = ps.student_id
+           WHERE u.login = %s AND u.password_hash = %s AND u.role = 'parent'""",
+        (login, password)
+    )
     user = cur.fetchone()
     conn.close()
     if not user:
         return err("Неверный логин или пароль", 401)
-    return ok({"id": user["id"], "login": user["login"], "role": user["role"], "display_name": user["display_name"], "child": user["child"], "child_id": user["child_id"]})
+    return ok({"id": user["id"], "login": user["login"], "role": user["role"],
+               "display_name": user["display_name"], "child": user["child"],
+               "child_id": user["child_id"], "class_id": user["class_id"]})
+
+
+# ── Classes ───────────────────────────────────────────────
+def handle_get_classes():
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"SELECT * FROM {SCHEMA}.classes ORDER BY grade, letter")
+    rows = cur.fetchall()
+    conn.close()
+    return ok(list(rows))
+
+
+# ── Students ──────────────────────────────────────────────
+def handle_get_students(params):
+    class_id = params.get("class_id")
+    conn = get_conn()
+    cur = conn.cursor()
+    if class_id:
+        cur.execute(
+            f"SELECT s.*, c.name as class_name FROM {SCHEMA}.students s LEFT JOIN {SCHEMA}.classes c ON c.id = s.class_id WHERE s.class_id = %s ORDER BY s.full_name",
+            (class_id,)
+        )
+    else:
+        cur.execute(
+            f"SELECT s.*, c.name as class_name FROM {SCHEMA}.students s LEFT JOIN {SCHEMA}.classes c ON c.id = s.class_id ORDER BY c.grade, c.letter, s.full_name"
+        )
+    rows = cur.fetchall()
+    conn.close()
+    return ok(list(rows))
+
+
+def handle_add_student(body):
+    name = (body.get("full_name") or "").strip()
+    class_id = body.get("class_id")
+    if not name or not class_id:
+        return err("Укажите имя и класс")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"SELECT name FROM {SCHEMA}.classes WHERE id = %s", (class_id,))
+    cl = cur.fetchone()
+    class_name = cl["name"] if cl else ""
+    cur.execute(
+        f"INSERT INTO {SCHEMA}.students (full_name, class_name, class_id) VALUES (%s, %s, %s) RETURNING *",
+        (name, class_name, class_id)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    return ok(dict(row), 201)
 
 
 # ── Schedule ──────────────────────────────────────────────
 def handle_get_schedule(params):
+    class_id = params.get("class_id")
     day = params.get("day")
     conn = get_conn()
     cur = conn.cursor()
-    if day:
-        cur.execute(f"SELECT * FROM {SCHEMA}.schedule WHERE day_of_week = %s ORDER BY sort_order", (day,))
+    if class_id and day:
+        cur.execute(
+            f"SELECT * FROM {SCHEMA}.schedule WHERE class_id = %s AND day_of_week = %s AND active = true ORDER BY sort_order",
+            (class_id, day)
+        )
+    elif class_id:
+        cur.execute(
+            f"SELECT * FROM {SCHEMA}.schedule WHERE class_id = %s AND active = true ORDER BY day_of_week, sort_order",
+            (class_id,)
+        )
     else:
-        cur.execute(f"SELECT * FROM {SCHEMA}.schedule ORDER BY day_of_week, sort_order")
+        cur.execute(f"SELECT * FROM {SCHEMA}.schedule WHERE active = true ORDER BY day_of_week, sort_order")
     rows = cur.fetchall()
     conn.close()
     return ok(list(rows))
@@ -157,8 +217,15 @@ def handle_add_schedule(body):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        f"INSERT INTO {SCHEMA}.schedule (day_of_week, time_slot, subject, teacher_name, room) VALUES (%s, %s, %s, %s, %s) RETURNING *",
-        (body.get("day_of_week"), body.get("time_slot"), body.get("subject"), body.get("teacher_name"), body.get("room"))
+        f"SELECT COALESCE(MAX(sort_order), 0) + 1 as next FROM {SCHEMA}.schedule WHERE class_id = %s AND day_of_week = %s",
+        (body.get("class_id"), body.get("day_of_week"))
+    )
+    next_order = cur.fetchone()["next"]
+    cur.execute(
+        f"""INSERT INTO {SCHEMA}.schedule (day_of_week, time_slot, subject, teacher_name, room, class_id, sort_order)
+            VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *""",
+        (body.get("day_of_week"), body.get("time_slot"), body.get("subject"),
+         body.get("teacher_name"), body.get("room"), body.get("class_id"), next_order)
     )
     row = cur.fetchone()
     conn.commit()
@@ -166,11 +233,45 @@ def handle_add_schedule(body):
     return ok(dict(row), 201)
 
 
-# ── Homework ──────────────────────────────────────────────
-def handle_get_homework():
+def handle_update_schedule(item_id, body):
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(f"SELECT * FROM {SCHEMA}.homework ORDER BY created_at DESC")
+    cur.execute(
+        f"""UPDATE {SCHEMA}.schedule SET
+            day_of_week = %s, time_slot = %s, subject = %s, teacher_name = %s, room = %s
+            WHERE id = %s RETURNING *""",
+        (body.get("day_of_week"), body.get("time_slot"), body.get("subject"),
+         body.get("teacher_name"), body.get("room"), item_id)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return err("Не найдено", 404)
+    return ok(dict(row))
+
+
+def handle_delete_schedule(item_id):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"UPDATE {SCHEMA}.schedule SET active = false WHERE id = %s", (item_id,))
+    conn.commit()
+    conn.close()
+    return ok({"ok": True})
+
+
+# ── Homework ──────────────────────────────────────────────
+def handle_get_homework(params):
+    class_id = params.get("class_id")
+    conn = get_conn()
+    cur = conn.cursor()
+    if class_id:
+        cur.execute(
+            f"SELECT * FROM {SCHEMA}.homework WHERE class_id = %s ORDER BY created_at DESC",
+            (class_id,)
+        )
+    else:
+        cur.execute(f"SELECT * FROM {SCHEMA}.homework ORDER BY created_at DESC")
     rows = cur.fetchall()
     conn.close()
     return ok(list(rows))
@@ -180,18 +281,22 @@ def handle_add_homework(body):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        f"INSERT INTO {SCHEMA}.homework (subject, task, due_date, teacher_id) VALUES (%s, %s, %s, %s) RETURNING *",
-        (body.get("subject"), body.get("task"), body.get("due_date"), body.get("teacher_id"))
+        f"INSERT INTO {SCHEMA}.homework (subject, task, due_date, teacher_id, class_id) VALUES (%s, %s, %s, %s, %s) RETURNING *",
+        (body.get("subject"), body.get("task"), body.get("due_date"),
+         body.get("teacher_id"), body.get("class_id"))
     )
     row = cur.fetchone()
-    # Уведомление всем родителям
-    cur.execute(f"SELECT id FROM {SCHEMA}.users WHERE role = 'parent'")
-    parents = cur.fetchall()
-    for p in parents:
+    if body.get("class_id"):
         cur.execute(
-            f"INSERT INTO {SCHEMA}.notifications (parent_id, text, type) VALUES (%s, %s, 'homework')",
-            (p["id"], f"Новое домашнее задание по предмету «{body.get('subject')}» до {body.get('due_date')}")
+            f"""SELECT DISTINCT ps.parent_id FROM {SCHEMA}.parent_students ps
+                JOIN {SCHEMA}.students s ON s.id = ps.student_id WHERE s.class_id = %s""",
+            (body.get("class_id"),)
         )
+        for p in cur.fetchall():
+            cur.execute(
+                f"INSERT INTO {SCHEMA}.notifications (parent_id, text, type) VALUES (%s, %s, 'homework')",
+                (p["parent_id"], f"Новое ДЗ по «{body.get('subject')}» до {body.get('due_date')}")
+            )
     conn.commit()
     conn.close()
     return ok(dict(row), 201)
@@ -215,15 +320,28 @@ def handle_update_homework(hw_id, body):
 # ── Grades ────────────────────────────────────────────────
 def handle_get_grades(params):
     student_id = params.get("student_id")
+    class_id = params.get("class_id")
     conn = get_conn()
     cur = conn.cursor()
     if student_id:
         cur.execute(
-            f"SELECT g.*, s.full_name as student_name FROM {SCHEMA}.grades g JOIN {SCHEMA}.students s ON s.id = g.student_id WHERE g.student_id = %s ORDER BY g.created_at DESC",
+            f"""SELECT g.*, s.full_name as student_name FROM {SCHEMA}.grades g
+                JOIN {SCHEMA}.students s ON s.id = g.student_id
+                WHERE g.student_id = %s ORDER BY g.created_at DESC""",
             (student_id,)
         )
+    elif class_id:
+        cur.execute(
+            f"""SELECT g.*, s.full_name as student_name FROM {SCHEMA}.grades g
+                JOIN {SCHEMA}.students s ON s.id = g.student_id
+                WHERE s.class_id = %s ORDER BY g.created_at DESC""",
+            (class_id,)
+        )
     else:
-        cur.execute(f"SELECT g.*, s.full_name as student_name FROM {SCHEMA}.grades g JOIN {SCHEMA}.students s ON s.id = g.student_id ORDER BY g.created_at DESC")
+        cur.execute(
+            f"""SELECT g.*, s.full_name as student_name FROM {SCHEMA}.grades g
+                JOIN {SCHEMA}.students s ON s.id = g.student_id ORDER BY g.created_at DESC"""
+        )
     rows = cur.fetchall()
     conn.close()
     return ok(list(rows))
@@ -233,17 +351,14 @@ def handle_add_grade(body):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        f"INSERT INTO {SCHEMA}.grades (student_id, subject, grade, comment, grade_date, teacher_id) VALUES (%s, %s, %s, %s, %s, %s) RETURNING *",
-        (body.get("student_id"), body.get("subject"), body.get("grade"), body.get("comment", ""), body.get("grade_date"), body.get("teacher_id"))
+        f"""INSERT INTO {SCHEMA}.grades (student_id, subject, grade, comment, grade_date, teacher_id, class_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *""",
+        (body.get("student_id"), body.get("subject"), body.get("grade"),
+         body.get("comment", ""), body.get("grade_date"), body.get("teacher_id"), body.get("class_id"))
     )
     row = cur.fetchone()
-    # Уведомление родителю ученика
-    cur.execute(
-        f"SELECT parent_id FROM {SCHEMA}.parent_students WHERE student_id = %s",
-        (body.get("student_id"),)
-    )
-    parents = cur.fetchall()
-    for p in parents:
+    cur.execute(f"SELECT parent_id FROM {SCHEMA}.parent_students WHERE student_id = %s", (body.get("student_id"),))
+    for p in cur.fetchall():
         cur.execute(
             f"INSERT INTO {SCHEMA}.notifications (parent_id, text, type) VALUES (%s, %s, 'grade')",
             (p["parent_id"], f"Новая отметка по {body.get('subject')}: {body.get('grade')} ⭐")
@@ -254,10 +369,22 @@ def handle_add_grade(body):
 
 
 # ── Files ─────────────────────────────────────────────────
-def handle_get_files():
+def handle_get_files(params):
+    class_id = params.get("class_id")
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(f"SELECT f.*, u.display_name as teacher_name FROM {SCHEMA}.files f LEFT JOIN {SCHEMA}.users u ON u.id = f.teacher_id ORDER BY f.created_at DESC")
+    if class_id:
+        cur.execute(
+            f"""SELECT f.*, u.display_name as teacher_name FROM {SCHEMA}.files f
+                LEFT JOIN {SCHEMA}.users u ON u.id = f.teacher_id
+                WHERE f.class_id = %s ORDER BY f.created_at DESC""",
+            (class_id,)
+        )
+    else:
+        cur.execute(
+            f"""SELECT f.*, u.display_name as teacher_name FROM {SCHEMA}.files f
+                LEFT JOIN {SCHEMA}.users u ON u.id = f.teacher_id ORDER BY f.created_at DESC"""
+        )
     rows = cur.fetchall()
     conn.close()
     return ok(list(rows))
@@ -266,15 +393,34 @@ def handle_get_files():
 # ── Recommendations ───────────────────────────────────────
 def handle_get_recommendations(params):
     student_id = params.get("student_id")
+    class_id = params.get("class_id")
     conn = get_conn()
     cur = conn.cursor()
     if student_id:
         cur.execute(
-            f"SELECT r.*, s.full_name as student_name, u.display_name as teacher_name FROM {SCHEMA}.recommendations r JOIN {SCHEMA}.students s ON s.id = r.student_id LEFT JOIN {SCHEMA}.users u ON u.id = r.teacher_id WHERE r.student_id = %s ORDER BY r.created_at DESC",
+            f"""SELECT r.*, s.full_name as student_name, u.display_name as teacher_name
+                FROM {SCHEMA}.recommendations r
+                JOIN {SCHEMA}.students s ON s.id = r.student_id
+                LEFT JOIN {SCHEMA}.users u ON u.id = r.teacher_id
+                WHERE r.student_id = %s ORDER BY r.created_at DESC""",
             (student_id,)
         )
+    elif class_id:
+        cur.execute(
+            f"""SELECT r.*, s.full_name as student_name, u.display_name as teacher_name
+                FROM {SCHEMA}.recommendations r
+                JOIN {SCHEMA}.students s ON s.id = r.student_id
+                LEFT JOIN {SCHEMA}.users u ON u.id = r.teacher_id
+                WHERE s.class_id = %s ORDER BY r.created_at DESC""",
+            (class_id,)
+        )
     else:
-        cur.execute(f"SELECT r.*, s.full_name as student_name, u.display_name as teacher_name FROM {SCHEMA}.recommendations r JOIN {SCHEMA}.students s ON s.id = r.student_id LEFT JOIN {SCHEMA}.users u ON u.id = r.teacher_id ORDER BY r.created_at DESC")
+        cur.execute(
+            f"""SELECT r.*, s.full_name as student_name, u.display_name as teacher_name
+                FROM {SCHEMA}.recommendations r
+                JOIN {SCHEMA}.students s ON s.id = r.student_id
+                LEFT JOIN {SCHEMA}.users u ON u.id = r.teacher_id ORDER BY r.created_at DESC"""
+        )
     rows = cur.fetchall()
     conn.close()
     return ok(list(rows))
@@ -284,18 +430,15 @@ def handle_add_recommendation(body):
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        f"INSERT INTO {SCHEMA}.recommendations (student_id, subject, text, rec_date, teacher_id) VALUES (%s, %s, %s, %s, %s) RETURNING *",
-        (body.get("student_id"), body.get("subject"), body.get("text"), body.get("rec_date"), body.get("teacher_id"))
+        f"""INSERT INTO {SCHEMA}.recommendations (student_id, subject, text, rec_date, teacher_id, class_id)
+            VALUES (%s, %s, %s, %s, %s, %s) RETURNING *""",
+        (body.get("student_id"), body.get("subject"), body.get("text"),
+         body.get("rec_date"), body.get("teacher_id"), body.get("class_id"))
     )
     row = cur.fetchone()
-    # Уведомление родителю
     teacher_name = body.get("teacher_name", "Учитель")
-    cur.execute(
-        f"SELECT parent_id FROM {SCHEMA}.parent_students WHERE student_id = %s",
-        (body.get("student_id"),)
-    )
-    parents = cur.fetchall()
-    for p in parents:
+    cur.execute(f"SELECT parent_id FROM {SCHEMA}.parent_students WHERE student_id = %s", (body.get("student_id"),))
+    for p in cur.fetchall():
         cur.execute(
             f"INSERT INTO {SCHEMA}.notifications (parent_id, text, type) VALUES (%s, %s, 'recommendation')",
             (p["parent_id"], f"Новая рекомендация по {body.get('subject')} от {teacher_name}")
@@ -312,7 +455,10 @@ def handle_get_notifications(params):
         return err("parent_id required")
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(f"SELECT * FROM {SCHEMA}.notifications WHERE parent_id = %s ORDER BY created_at DESC LIMIT 20", (parent_id,))
+    cur.execute(
+        f"SELECT * FROM {SCHEMA}.notifications WHERE parent_id = %s ORDER BY created_at DESC LIMIT 20",
+        (parent_id,)
+    )
     rows = cur.fetchall()
     conn.close()
     return ok(list(rows))
@@ -328,13 +474,3 @@ def handle_mark_read(body):
     conn.commit()
     conn.close()
     return ok({"ok": True})
-
-
-# ── Students ──────────────────────────────────────────────
-def handle_get_students():
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(f"SELECT * FROM {SCHEMA}.students ORDER BY full_name")
-    rows = cur.fetchall()
-    conn.close()
-    return ok(list(rows))
