@@ -201,7 +201,7 @@ function LoginScreen({ onLogin }: { onLogin: (u: User) => void }) {
                 <b style={{ color: "#8B1A2F" }}>parent1</b> / <b style={{ color: "#8B1A2F" }}>parent1pass</b>
               </p>
             )}
-            <SaveBtn label={loading ? "Входим..." : "Войти в дневник 🍷"} loading={loading} />
+            <SaveBtn label={loading ? "Входим..." : "Войти в дневник"} loading={loading} />
           </form>
         </div>
       </div>
