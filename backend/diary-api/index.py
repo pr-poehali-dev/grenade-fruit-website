@@ -181,7 +181,7 @@ def handle_login(body):
 def handle_get_classes():
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(f"SELECT * FROM {SCHEMA}.classes ORDER BY grade, letter")
+    cur.execute(f"SELECT * FROM {SCHEMA}.classes WHERE is_active = TRUE ORDER BY grade, letter")
     rows = cur.fetchall()
     conn.close()
     return ok(list(rows))

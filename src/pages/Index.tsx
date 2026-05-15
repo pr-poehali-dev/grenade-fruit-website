@@ -241,15 +241,8 @@ export default function Index() {
 
   if (!user) return <LoginScreen onLogin={setUser} />;
 
-  // Уникальные классы по номеру (берём первый из каждой группы — они все с одним display_name)
-  const uniqueGrades: SchoolClass[] = [];
-  const seenGrades = new Set<number>();
-  classes.forEach(c => {
-    if (!seenGrades.has(c.grade)) { seenGrades.add(c.grade); uniqueGrades.push(c); }
-  });
-  uniqueGrades.sort((a, b) => a.grade - b.grade);
-  // Все классы отсортированные (для учителя)
-  const sortedClasses = [...classes].sort((a, b) => a.grade - b.grade || a.letter.localeCompare(b.letter));
+  // Классы отсортированные по параллели
+  const sortedClasses = [...classes].sort((a, b) => a.grade - b.grade);
 
   const NAV = [
     { id: "schedule" as Tab, label: "Расписание", emoji: "📅" },
@@ -284,7 +277,7 @@ export default function Index() {
                 <button onClick={() => setShowClassPicker(!showClassPicker)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium"
                   style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
-                  {selectedClass ? `${selectedClass.grade}${selectedClass.letter}` : "Класс"}
+                  {selectedClass ? (selectedClass.display_name || `${selectedClass.grade} класс`) : "Класс"}
                   <Icon name="ChevronDown" size={12} />
                 </button>
                 {showClassPicker && (
@@ -295,7 +288,7 @@ export default function Index() {
                         onClick={() => { setSelectedClass(cl); goTab("schedule"); setShowClassPicker(false); }}
                         className="w-full text-left px-4 py-2.5 text-sm font-medium hover:bg-pink-50 transition-colors"
                         style={{ color: selectedClass?.id === cl.id ? "#8B1A2F" : "#3D1520", fontWeight: selectedClass?.id === cl.id ? 700 : 500 }}>
-                        {cl.grade}{cl.letter}
+                        {cl.display_name || `${cl.grade} класс`}
                       </button>
                     ))}
                   </div>
@@ -346,7 +339,7 @@ export default function Index() {
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider mb-2 px-1" style={{ color: "#9B6A7A" }}>Классы</p>
               <div className="space-y-1">
-                {(user.role === "teacher" ? sortedClasses : uniqueGrades).map(cl => (
+                {sortedClasses.map(cl => (
                   <button key={cl.id} onClick={() => { setSelectedClass(cl); goTab("schedule"); }}
                     className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.02]"
                     style={{
@@ -355,7 +348,7 @@ export default function Index() {
                       border: "1.5px solid rgba(139,26,47,0.12)",
                       boxShadow: selectedClass?.id === cl.id ? "0 4px 12px rgba(139,26,47,0.25)" : "none",
                     }}>
-                    {user.role === "teacher" ? `${cl.grade}${cl.letter}` : (cl.display_name || `${cl.grade} класс`)}
+                    {cl.display_name || `${cl.grade} класс`}
                   </button>
                 ))}
               </div>
@@ -376,11 +369,11 @@ export default function Index() {
               <p className="text-sm" style={{ color: "#9B6A7A" }}>Нажмите на класс в панели слева</p>
               {/* Mobile class picker */}
               <div className="mt-6 flex flex-col gap-2 w-full max-w-xs md:hidden">
-                {(user.role === "teacher" ? sortedClasses : uniqueGrades).map(cl => (
+                {sortedClasses.map(cl => (
                   <button key={cl.id} onClick={() => { setSelectedClass(cl); goTab("schedule"); }}
                     className="py-2.5 px-4 rounded-xl text-sm font-medium text-left"
                     style={{ background: "white", color: "#3D1520", border: "1.5px solid rgba(139,26,47,0.12)" }}>
-                    {user.role === "teacher" ? `${cl.grade}${cl.letter}` : (cl.display_name || `${cl.grade} класс`)}
+                    {cl.display_name || `${cl.grade} класс`}
                   </button>
                 ))}
               </div>
