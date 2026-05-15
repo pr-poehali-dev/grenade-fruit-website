@@ -122,6 +122,7 @@ function SaveBtn({ label = "Сохранить", loading }: { label?: string; lo
 }
 
 const DAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница"];
+const TEACHERS = ["Елена Сергеевна", "Александр Валерьевич", "Лариса Ивановна", "Олеся Александровна", "Ирина Олеговна", "Любовь Александровна"];
 const NOTIF_EMOJI: Record<string, string> = { grade: "⭐", homework: "📚", recommendation: "💬", file: "📎" };
 
 const SUBJECTS_BY_GRADE: Record<string, string[]> = {
@@ -1049,7 +1050,12 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                 {getSubjectsByGrade(cls.grade).map(s => <option key={s} value={s}>{s}</option>)}
               </Select>
             </Field>
-            <Field label="Учитель"><Input value={form.teacher_name} onChange={e => setForm(f => ({ ...f, teacher_name: e.target.value }))} placeholder="Анна Сергеевна" required /></Field>
+            <Field label="Учитель">
+              <Select value={form.teacher_name} onChange={e => setForm(f => ({ ...f, teacher_name: e.target.value }))} required>
+                <option value="">— Выберите педагога —</option>
+                {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
+              </Select>
+            </Field>
             <Field label="Кабинет"><Input value={form.room} onChange={e => setForm(f => ({ ...f, room: e.target.value }))} placeholder="305" required /></Field>
             <SaveBtn loading={savingItem} />
           </form>
@@ -1094,7 +1100,10 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                             <Icon name="X" size={13} className="text-red-400" />
                           </button>
                         </div>
-                        <Input value={slot.teacher_name} onChange={e => updateSlot(d, i, "teacher_name", e.target.value)} placeholder="Учитель" />
+                        <Select value={slot.teacher_name} onChange={e => updateSlot(d, i, "teacher_name", e.target.value)}>
+                          <option value="">— Педагог —</option>
+                          {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
+                        </Select>
                         <Input value={slot.room} onChange={e => updateSlot(d, i, "room", e.target.value)} placeholder="Кабинет" />
                       </div>
                     ))}
