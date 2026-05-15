@@ -468,6 +468,22 @@ export default function Index() {
 // ─── Schedule Tab ──────────────────────────────────────────
 type SchedView = "week" | "module";
 
+// Возвращает даты текущей недели (пн–пт) в формате YYYY-MM-DD
+function getCurrentWeekDates(): { iso: string; dayName: string }[] {
+  const today = new Date();
+  const dow = today.getDay(); // 0=вс
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
+  const result = [];
+  const DNAMES = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница"];
+  for (let i = 0; i < 5; i++) {
+    const d = new Date(monday);
+    d.setDate(monday.getDate() + i);
+    result.push({ iso: d.toISOString().split("T")[0], dayName: DNAMES[i] });
+  }
+  return result;
+}
+
 interface LessonSlot { time_slot: string; subject: string; teacher_name: string; room: string; }
 
 function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
@@ -478,7 +494,6 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   // Week view state
   const [items, setItems] = useState<ScheduleItem[]>([]);
-  const [day, setDay] = useState("Понедельник");
   const [loadingWeek, setLoadingWeek] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<ScheduleItem | null>(null);
@@ -527,9 +542,6 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
   useEffect(() => {
     if (view === "module" && selectedModule) loadDates(selectedModule.id);
   }, [view, selectedModule, loadDates]);
-
-  // Helpers
-  const dayItems = items.filter(i => i.day_of_week === day).sort((a, b) => a.sort_order - b.sort_order);
 
   const openEdit = (item: ScheduleItem) => {
     setEditing(item);
@@ -730,38 +742,65 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
       {/* ── WEEK VIEW ── */}
       {view === "week" && (
         <>
-          <div className="flex gap-2 mb-4 flex-wrap">
-            {DAYS.map(d => (
-              <button key={d} onClick={() => setDay(d)}
-                className="px-3 py-1.5 rounded-xl text-sm font-medium transition-all"
-                style={{ background: day === d ? "#8B1A2F" : "white", color: day === d ? "white" : "#8B1A2F", border: "1.5px solid rgba(139,26,47,0.2)" }}>
-                {d}
-              </button>
-            ))}
-          </div>
-          {loadingWeek ? <Loader /> : (
-            <div className="space-y-3">
-              {dayItems.length === 0 && <Empty text="Уроки не добавлены" />}
-              {dayItems.map((item, i) => (
-                <div key={item.id} className="flex gap-3 items-center p-4 rounded-2xl card-hover animate-slide-up"
-                  style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.06}s`, opacity: 0 }}>
-                  <span className="text-xs font-medium px-2 py-1 rounded-lg shrink-0" style={{ background: "#F5E0E5", color: "#8B1A2F", whiteSpace: "nowrap" }}>{item.time_slot}</span>
-                  <div className="flex-1">
-                    <p className="font-semibold text-sm" style={{ color: "#3D1520" }}>{item.subject}</p>
-                    <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{item.teacher_name}</p>
-                  </div>
-                  <span className="text-xs px-2 py-1 rounded-lg shrink-0" style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>🚪 {item.room}</span>
-                  {user.role === "teacher" && (
-                    <div className="flex gap-1">
-                      <button onClick={() => openEdit(item)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100"><Icon name="Pencil" size={13} style={{ color: "#8B1A2F" }} /></button>
-                      <button onClick={() => delItem(item.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50"><Icon name="Trash2" size={13} className="text-red-400" /></button>
+          {loadingWeek ? <Loader /> : (() => {
+            const weekDates = getCurrentWeekDates();
+            const todayIso = new Date().toISOString().split("T")[0];
+            const hasAny = DAYS.some(d => items.some(i => i.day_of_week === d));
+            if (!hasAny) return <Empty text="Уроки не добавлены" />;
+            return (
+              <div className="space-y-4">
+                {weekDates.map(({ iso, dayName }) => {
+                  const dayLessons = items.filter(i => i.day_of_week === dayName).sort((a, b) => a.sort_order - b.sort_order);
+                  const isToday = iso === todayIso;
+                  return (
+                    <div key={iso}>
+                      {/* Day header */}
+                      <div className="flex items-center gap-2 mb-2">
+                        <div className="px-3 py-1 rounded-xl text-xs font-bold"
+                          style={{ background: isToday ? "linear-gradient(135deg,#5C0F1E,#8B1A2F)" : "#F5E0E5", color: isToday ? "white" : "#8B1A2F" }}>
+                          {dayName}
+                        </div>
+                        <span className="text-xs" style={{ color: "#9B6A7A" }}>
+                          {new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
+                        </span>
+                        {isToday && <span className="text-xs font-semibold" style={{ color: "#8B1A2F" }}>· сегодня</span>}
+                        {user.role === "teacher" && (
+                          <button onClick={() => { setEditing(null); setForm({ day_of_week: dayName, time_slot: "08:00–08:45", subject: "", teacher_name: "", room: "" }); setShowAdd(true); }}
+                            className="ml-auto w-6 h-6 rounded-lg flex items-center justify-center hover:bg-pink-100 transition-colors">
+                            <Icon name="Plus" size={13} style={{ color: "#8B1A2F" }} />
+                          </button>
+                        )}
+                      </div>
+                      {/* Lessons */}
+                      {dayLessons.length === 0 ? (
+                        <p className="text-xs pl-1" style={{ color: "#C4B0B5" }}>Нет уроков</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {dayLessons.map((item) => (
+                            <div key={item.id} className="flex gap-3 items-center p-3 rounded-2xl"
+                              style={{ background: isToday ? "rgba(139,26,47,0.04)" : "white", border: `1.5px solid ${isToday ? "rgba(139,26,47,0.12)" : "rgba(139,26,47,0.07)"}` }}>
+                              <span className="text-xs font-medium px-2 py-1 rounded-lg shrink-0" style={{ background: "#F5E0E5", color: "#8B1A2F", whiteSpace: "nowrap" }}>{item.time_slot}</span>
+                              <div className="flex-1 min-w-0">
+                                <p className="font-semibold text-sm truncate" style={{ color: "#3D1520" }}>{item.subject}</p>
+                                <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{item.teacher_name}</p>
+                              </div>
+                              <span className="text-xs px-2 py-1 rounded-lg shrink-0" style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>🚪 {item.room}</span>
+                              {user.role === "teacher" && (
+                                <div className="flex gap-1 shrink-0">
+                                  <button onClick={() => openEdit(item)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100"><Icon name="Pencil" size={13} style={{ color: "#8B1A2F" }} /></button>
+                                  <button onClick={() => delItem(item.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50"><Icon name="Trash2" size={13} className="text-red-400" /></button>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
-          {user.role === "teacher" && <AddBtn label="Добавить урок" onClick={() => { setEditing(null); setForm({ day_of_week: day, time_slot: "08:00–08:45", subject: "", teacher_name: "", room: "" }); setShowAdd(true); }} />}
+                  );
+                })}
+              </div>
+            );
+          })()}
         </>
       )}
 
