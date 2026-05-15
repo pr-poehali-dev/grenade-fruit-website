@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import Icon from "@/components/ui/icon";
 
 const API = "https://functions.poehali.dev/4adc107f-8465-4183-bc1a-9345fd1468dc";
@@ -531,13 +531,38 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
     loadWeek();
   }, [loadWeek]);
 
-  // Load module calendar dates
+  // Даты текущей недели (пн-пт) для загрузки расписания
+  const weekIsos = useMemo(() => getCurrentWeekDates().map(d => d.iso), []);
+
+  // Уроки текущей недели из schedDates (для week view)
+  const [weekSchedDates, setWeekSchedDates] = useState<ScheduleDate[]>([]);
+  const [loadingWeekDates, setLoadingWeekDates] = useState(false);
+
+  const loadWeekDates = useCallback(async () => {
+    setLoadingWeekDates(true);
+    const [d1, d2, d3, d4, d5] = weekIsos;
+    const results = await Promise.all(
+      [d1, d2, d3, d4, d5].filter(Boolean).map(date =>
+        api(`get_schedule_dates&class_id=${cls.id}&lesson_date=${date}`)
+      )
+    );
+    const all: ScheduleDate[] = [];
+    results.forEach(r => { if (Array.isArray(r)) all.push(...r); });
+    setWeekSchedDates(all);
+    setLoadingWeekDates(false);
+  }, [cls.id, weekIsos]);
+
+  // Load module calendar dates (for module view)
   const loadDates = useCallback(async (modId: number) => {
     setLoadingDates(true);
     const data = await api(`get_schedule_dates&class_id=${cls.id}&module_id=${modId}`);
     if (Array.isArray(data)) setSchedDates(data);
     setLoadingDates(false);
   }, [cls.id]);
+
+  useEffect(() => {
+    loadWeekDates();
+  }, [loadWeekDates]);
 
   useEffect(() => {
     if (view === "module" && selectedModule) loadDates(selectedModule.id);
@@ -609,7 +634,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
     });
     setSavingModule(false);
     setShowModuleForm(false);
-    loadDates(selectedModule.id);
+    await Promise.all([loadDates(selectedModule.id), loadWeekDates()]);
   };
 
   const addSlot = (d: string) => setWeeklyTemplate(t => ({ ...t, [d]: [...t[d], emptySlot()] }));
@@ -742,16 +767,35 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
       {/* ── WEEK VIEW ── */}
       {view === "week" && (
         <>
-          {loadingWeek ? <Loader /> : (() => {
+          {(loadingWeekDates || loadingWeek) ? <Loader /> : (() => {
             const weekDates = getCurrentWeekDates();
             const todayIso = new Date().toISOString().split("T")[0];
-            const hasAny = DAYS.some(d => items.some(i => i.day_of_week === d));
-            if (!hasAny) return <Empty text="Уроки не добавлены" />;
             return (
               <div className="space-y-4">
                 {weekDates.map(({ iso, dayName }) => {
-                  const dayLessons = items.filter(i => i.day_of_week === dayName).sort((a, b) => a.sort_order - b.sort_order);
                   const isToday = iso === todayIso;
+                  const isBreakDay = breakDates.has(iso);
+                  const isHolidayDay = holidayDates.has(iso);
+                  const isTripDay = tripDates.has(iso);
+                  const holiday = holidays.find(h => h.holiday_date === iso);
+                  const trip = trips.find(t => iso >= t.trip_date && iso <= (t.date_end || t.trip_date));
+                  const breakItem = breaks.find(b => iso >= b.date_start && iso <= b.date_end);
+
+                  // Уроки из реального расписания модуля
+                  const dayLessons = weekSchedDates
+                    .filter(s => s.lesson_date === iso)
+                    .sort((a, b) => a.sort_order - b.sort_order);
+
+                  // Запасной вариант — базовый шаблон (если модульное расписание ещё не заполнено)
+                  const fallbackLessons = items
+                    .filter(i => i.day_of_week === dayName)
+                    .sort((a, b) => a.sort_order - b.sort_order);
+
+                  const lessonsToShow = dayLessons.length > 0 ? dayLessons : fallbackLessons;
+                  const isFromTemplate = dayLessons.length === 0 && fallbackLessons.length > 0;
+
+                  const dateLabel = new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
+
                   return (
                     <div key={iso}>
                       {/* Day header */}
@@ -760,40 +804,67 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                           style={{ background: isToday ? "linear-gradient(135deg,#5C0F1E,#8B1A2F)" : "#F5E0E5", color: isToday ? "white" : "#8B1A2F" }}>
                           {dayName}
                         </div>
-                        <span className="text-xs" style={{ color: "#9B6A7A" }}>
-                          {new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
-                        </span>
+                        <span className="text-xs" style={{ color: "#9B6A7A" }}>{dateLabel}</span>
                         {isToday && <span className="text-xs font-semibold" style={{ color: "#8B1A2F" }}>· сегодня</span>}
-                        {user.role === "teacher" && (
+                        {user.role === "teacher" && !isBreakDay && !isHolidayDay && (
                           <button onClick={() => { setEditing(null); setForm({ day_of_week: dayName, time_slot: "08:00–08:45", subject: "", teacher_name: "", room: "" }); setShowAdd(true); }}
                             className="ml-auto w-6 h-6 rounded-lg flex items-center justify-center hover:bg-pink-100 transition-colors">
                             <Icon name="Plus" size={13} style={{ color: "#8B1A2F" }} />
                           </button>
                         )}
                       </div>
-                      {/* Lessons */}
-                      {dayLessons.length === 0 ? (
-                        <p className="text-xs pl-1" style={{ color: "#C4B0B5" }}>Нет уроков</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {dayLessons.map((item) => (
-                            <div key={item.id} className="flex gap-3 items-center p-3 rounded-2xl"
-                              style={{ background: isToday ? "rgba(139,26,47,0.04)" : "white", border: `1.5px solid ${isToday ? "rgba(139,26,47,0.12)" : "rgba(139,26,47,0.07)"}` }}>
-                              <span className="text-xs font-medium px-2 py-1 rounded-lg shrink-0" style={{ background: "#F5E0E5", color: "#8B1A2F", whiteSpace: "nowrap" }}>{item.time_slot}</span>
-                              <div className="flex-1 min-w-0">
-                                <p className="font-semibold text-sm truncate" style={{ color: "#3D1520" }}>{item.subject}</p>
-                                <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{item.teacher_name}</p>
-                              </div>
-                              <span className="text-xs px-2 py-1 rounded-lg shrink-0" style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>🚪 {item.room}</span>
-                              {user.role === "teacher" && (
-                                <div className="flex gap-1 shrink-0">
-                                  <button onClick={() => openEdit(item)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100"><Icon name="Pencil" size={13} style={{ color: "#8B1A2F" }} /></button>
-                                  <button onClick={() => delItem(item.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50"><Icon name="Trash2" size={13} className="text-red-400" /></button>
-                                </div>
-                              )}
-                            </div>
-                          ))}
+
+                      {/* Special events: break / holiday */}
+                      {(isBreakDay || isHolidayDay) && (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl mb-1"
+                          style={{ background: isBreakDay ? "rgba(212,168,67,0.1)" : "rgba(76,175,80,0.08)", border: `1.5px solid ${isBreakDay ? "rgba(212,168,67,0.3)" : "rgba(76,175,80,0.25)"}` }}>
+                          <span>{isBreakDay ? "🏖" : "🎉"}</span>
+                          <span className="text-xs font-medium" style={{ color: isBreakDay ? "#7A5700" : "#2E7D32" }}>
+                            {isHolidayDay ? holiday?.name : (breakItem?.name || "Каникулы")}
+                          </span>
                         </div>
+                      )}
+
+                      {/* Trip event */}
+                      {isTripDay && (
+                        <div className="flex items-center gap-2 px-3 py-2 rounded-xl mb-1"
+                          style={{ background: "rgba(33,150,243,0.07)", border: "1.5px solid rgba(33,150,243,0.2)" }}>
+                          <span>🚌</span>
+                          <div>
+                            <span className="text-xs font-medium" style={{ color: "#1565C0" }}>{trip?.name}</span>
+                            {trip?.description && <span className="text-xs ml-1" style={{ color: "#5B8DB8" }}>· {trip.description}</span>}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Lessons (not shown on full-day breaks) */}
+                      {!isBreakDay && !isHolidayDay && (
+                        lessonsToShow.length === 0 ? (
+                          <p className="text-xs pl-1" style={{ color: "#C4B0B5" }}>Нет уроков</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {isFromTemplate && (
+                              <p className="text-xs pl-1 mb-1" style={{ color: "#C4B0B5" }}>шаблон расписания</p>
+                            )}
+                            {lessonsToShow.map((lesson) => (
+                              <div key={lesson.id} className="flex gap-3 items-center p-3 rounded-2xl"
+                                style={{ background: isToday ? "rgba(139,26,47,0.04)" : "white", border: `1.5px solid ${isToday ? "rgba(139,26,47,0.12)" : "rgba(139,26,47,0.07)"}` }}>
+                                <span className="text-xs font-medium px-2 py-1 rounded-lg shrink-0" style={{ background: "#F5E0E5", color: "#8B1A2F", whiteSpace: "nowrap" }}>{lesson.time_slot}</span>
+                                <div className="flex-1 min-w-0">
+                                  <p className="font-semibold text-sm truncate" style={{ color: "#3D1520" }}>{lesson.subject}</p>
+                                  <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{lesson.teacher_name}</p>
+                                </div>
+                                <span className="text-xs px-2 py-1 rounded-lg shrink-0" style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>🚪 {lesson.room}</span>
+                                {user.role === "teacher" && isFromTemplate && (
+                                  <div className="flex gap-1 shrink-0">
+                                    <button onClick={() => openEdit(lesson as unknown as ScheduleItem)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100"><Icon name="Pencil" size={13} style={{ color: "#8B1A2F" }} /></button>
+                                    <button onClick={() => delItem(lesson.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50"><Icon name="Trash2" size={13} className="text-red-400" /></button>
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )
                       )}
                     </div>
                   );
