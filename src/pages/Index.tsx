@@ -124,6 +124,20 @@ function SaveBtn({ label = "Сохранить", loading }: { label?: string; lo
 const DAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница"];
 const NOTIF_EMOJI: Record<string, string> = { grade: "⭐", homework: "📚", recommendation: "💬", file: "📎" };
 
+const SUBJECTS_BY_GRADE: Record<string, string[]> = {
+  "1-2": ["Математика", "Русский язык", "Английский язык", "Естествознание", "Урок осознанности", "Классный час", "ЖЗЛ", "ИЗО", "Нейротренинг", "Чтение по программе", "История искусств", "Чтение современной литературы", "ОФП"],
+  "3-4": ["Математика", "Русский язык", "Чтение", "Биология", "География", "Астрономия", "Физика", "История искусств", "Английский язык", "Классный час", "Урок осознанности", "Нейротренинг", "ОФП"],
+  "5-6": ["Математика", "Русский язык", "Литература", "Английский язык", "История", "Биология", "География", "Геометрия", "Физика+химия", "Классный час", "Самопознание", "Проект", "Нейротренинг", "ОФП"],
+  "7":   ["Алгебра", "Геометрия", "Русский язык", "Литература", "Английский язык", "История", "Биология", "География", "Химия", "Физика", "Классный час", "Проект", "Самопознание", "ОФП"],
+};
+
+function getSubjectsByGrade(grade: number): string[] {
+  if (grade <= 2) return SUBJECTS_BY_GRADE["1-2"];
+  if (grade <= 4) return SUBJECTS_BY_GRADE["3-4"];
+  if (grade <= 6) return SUBJECTS_BY_GRADE["5-6"];
+  return SUBJECTS_BY_GRADE["7"];
+}
+
 // ─── Login ────────────────────────────────────────────────
 function LoginScreen({ onLogin }: { onLogin: (u: User) => void }) {
   const [tab, setTab] = useState<Role>("parent");
@@ -1024,7 +1038,12 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
               </Select>
             </Field>
             <Field label="Время"><Input value={form.time_slot} onChange={e => setForm(f => ({ ...f, time_slot: e.target.value }))} placeholder="08:00–08:45" /></Field>
-            <Field label="Предмет"><Input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="Математика" required /></Field>
+            <Field label="Предмет">
+              <Select value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} required>
+                <option value="">— Выберите предмет —</option>
+                {getSubjectsByGrade(cls.grade).map(s => <option key={s} value={s}>{s}</option>)}
+              </Select>
+            </Field>
             <Field label="Учитель"><Input value={form.teacher_name} onChange={e => setForm(f => ({ ...f, teacher_name: e.target.value }))} placeholder="Анна Сергеевна" required /></Field>
             <Field label="Кабинет"><Input value={form.room} onChange={e => setForm(f => ({ ...f, room: e.target.value }))} placeholder="305" required /></Field>
             <SaveBtn loading={savingItem} />
@@ -1059,7 +1078,10 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                       <div key={i} className="grid grid-cols-2 gap-2 p-3 rounded-xl" style={{ background: "#FDF6EE", border: "1px solid rgba(139,26,47,0.08)" }}>
                         <Input value={slot.time_slot} onChange={e => updateSlot(d, i, "time_slot", e.target.value)} placeholder="08:00–08:45" />
                         <div className="flex gap-1">
-                          <Input value={slot.subject} onChange={e => updateSlot(d, i, "subject", e.target.value)} placeholder="Предмет" />
+                          <Select value={slot.subject} onChange={e => updateSlot(d, i, "subject", e.target.value)}>
+                            <option value="">— Предмет —</option>
+                            {getSubjectsByGrade(cls.grade).map(s => <option key={s} value={s}>{s}</option>)}
+                          </Select>
                           <button type="button" onClick={() => removeSlot(d, i)} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
                             <Icon name="X" size={13} className="text-red-400" />
                           </button>
