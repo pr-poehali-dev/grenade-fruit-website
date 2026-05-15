@@ -211,7 +211,12 @@ function LoginScreen({ onLogin }: { onLogin: (u: User) => void }) {
 
 // ─── Main App ─────────────────────────────────────────────
 export default function Index() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User | null>(() => {
+    try { const s = localStorage.getItem("school_user"); return s ? JSON.parse(s) : null; } catch { return null; }
+  });
+
+  const login = (u: User) => { localStorage.setItem("school_user", JSON.stringify(u)); setUser(u); };
+  const logout = () => { localStorage.removeItem("school_user"); setUser(null); };
   const [classes, setClasses] = useState<SchoolClass[]>([]);
   const [selectedClass, setSelectedClass] = useState<SchoolClass | null>(null);
   const [tab, setTab] = useState<Tab>("schedule");
@@ -254,7 +259,7 @@ export default function Index() {
     setNotifs(prev => prev.map(n => ({ ...n, is_read: true })));
   };
 
-  if (!user) return <LoginScreen onLogin={setUser} />;
+  if (!user) return <LoginScreen onLogin={login} />;
 
   // Классы отсортированные по параллели
   const sortedClasses = [...classes].sort((a, b) => a.grade - b.grade);
@@ -339,7 +344,7 @@ export default function Index() {
                 )}
               </div>
             )}
-            <button onClick={() => setUser(null)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
+            <button onClick={logout} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
               <Icon name="LogOut" size={13} /> Выйти
             </button>
           </div>
