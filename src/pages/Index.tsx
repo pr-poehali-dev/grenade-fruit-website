@@ -202,6 +202,7 @@ export default function Index() {
   const [tab, setTab] = useState<Tab>("schedule");
   const [tabKey, setTabKey] = useState(0);
   const [showNotifs, setShowNotifs] = useState(false);
+  const [showClassPicker, setShowClassPicker] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
 
   const unread = notifs.filter(n => !n.is_read).length;
@@ -247,6 +248,8 @@ export default function Index() {
     if (!seenGrades.has(c.grade)) { seenGrades.add(c.grade); uniqueGrades.push(c); }
   });
   uniqueGrades.sort((a, b) => a.grade - b.grade);
+  // Все классы отсортированные (для учителя)
+  const sortedClasses = [...classes].sort((a, b) => a.grade - b.grade || a.letter.localeCompare(b.letter));
 
   const NAV = [
     { id: "schedule" as Tab, label: "Расписание", emoji: "📅" },
@@ -276,6 +279,29 @@ export default function Index() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {user.role === "teacher" && (
+              <div className="relative md:hidden">
+                <button onClick={() => setShowClassPicker(!showClassPicker)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium"
+                  style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
+                  {selectedClass ? `${selectedClass.grade}${selectedClass.letter}` : "Класс"}
+                  <Icon name="ChevronDown" size={12} />
+                </button>
+                {showClassPicker && (
+                  <div className="absolute right-0 top-10 rounded-2xl shadow-2xl z-50 animate-slide-up overflow-hidden"
+                    style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.12)", minWidth: 120 }}>
+                    {sortedClasses.map(cl => (
+                      <button key={cl.id}
+                        onClick={() => { setSelectedClass(cl); goTab("schedule"); setShowClassPicker(false); }}
+                        className="w-full text-left px-4 py-2.5 text-sm font-medium hover:bg-pink-50 transition-colors"
+                        style={{ color: selectedClass?.id === cl.id ? "#8B1A2F" : "#3D1520", fontWeight: selectedClass?.id === cl.id ? 700 : 500 }}>
+                        {cl.grade}{cl.letter}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {user.role === "parent" && (
               <div className="relative">
                 <button onClick={() => setShowNotifs(!showNotifs)} className="relative w-9 h-9 rounded-full flex items-center justify-center" style={{ background: showNotifs ? "#F5E0E5" : "transparent" }}>
@@ -320,16 +346,16 @@ export default function Index() {
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider mb-2 px-1" style={{ color: "#9B6A7A" }}>Классы</p>
               <div className="space-y-1">
-                {uniqueGrades.map(cl => (
+                {(user.role === "teacher" ? sortedClasses : uniqueGrades).map(cl => (
                   <button key={cl.id} onClick={() => { setSelectedClass(cl); goTab("schedule"); }}
                     className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.02]"
                     style={{
-                      background: selectedClass?.grade === cl.grade ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
-                      color: selectedClass?.grade === cl.grade ? "white" : "#3D1520",
+                      background: selectedClass?.id === cl.id ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+                      color: selectedClass?.id === cl.id ? "white" : "#3D1520",
                       border: "1.5px solid rgba(139,26,47,0.12)",
-                      boxShadow: selectedClass?.grade === cl.grade ? "0 4px 12px rgba(139,26,47,0.25)" : "none",
+                      boxShadow: selectedClass?.id === cl.id ? "0 4px 12px rgba(139,26,47,0.25)" : "none",
                     }}>
-                    {cl.display_name || `${cl.grade} класс`}
+                    {user.role === "teacher" ? `${cl.grade}${cl.letter}` : (cl.display_name || `${cl.grade} класс`)}
                   </button>
                 ))}
               </div>
@@ -350,11 +376,11 @@ export default function Index() {
               <p className="text-sm" style={{ color: "#9B6A7A" }}>Нажмите на класс в панели слева</p>
               {/* Mobile class picker */}
               <div className="mt-6 flex flex-col gap-2 w-full max-w-xs md:hidden">
-                {uniqueGrades.map(cl => (
+                {(user.role === "teacher" ? sortedClasses : uniqueGrades).map(cl => (
                   <button key={cl.id} onClick={() => { setSelectedClass(cl); goTab("schedule"); }}
                     className="py-2.5 px-4 rounded-xl text-sm font-medium text-left"
                     style={{ background: "white", color: "#3D1520", border: "1.5px solid rgba(139,26,47,0.12)" }}>
-                    {cl.display_name || `${cl.grade} класс`}
+                    {user.role === "teacher" ? `${cl.grade}${cl.letter}` : (cl.display_name || `${cl.grade} класс`)}
                   </button>
                 ))}
               </div>
