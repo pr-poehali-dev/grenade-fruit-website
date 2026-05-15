@@ -848,9 +848,14 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                         <div className="flex items-center gap-2 px-3 py-2 rounded-xl mb-1"
                           style={{ background: isBreakDay ? "rgba(212,168,67,0.1)" : "rgba(76,175,80,0.08)", border: `1.5px solid ${isBreakDay ? "rgba(212,168,67,0.3)" : "rgba(76,175,80,0.25)"}` }}>
                           <span>{isBreakDay ? "🏖" : "🎉"}</span>
-                          <span className="text-xs font-medium" style={{ color: isBreakDay ? "#7A5700" : "#2E7D32" }}>
+                          <span className="text-xs font-medium flex-1" style={{ color: isBreakDay ? "#7A5700" : "#2E7D32" }}>
                             {isHolidayDay ? holiday?.name : (breakItem?.name || "Каникулы")}
                           </span>
+                          {user.role === "teacher" && isHolidayDay && holiday && (
+                            <button onClick={() => removeHoliday(holiday.id)} className="w-6 h-6 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
+                              <Icon name="Trash2" size={12} className="text-red-400" />
+                            </button>
+                          )}
                         </div>
                       )}
 
@@ -859,10 +864,15 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                         <div className="flex items-center gap-2 px-3 py-2 rounded-xl mb-1"
                           style={{ background: "rgba(33,150,243,0.07)", border: "1.5px solid rgba(33,150,243,0.2)" }}>
                           <span>🚌</span>
-                          <div>
+                          <div className="flex-1">
                             <span className="text-xs font-medium" style={{ color: "#1565C0" }}>{trip?.name}</span>
                             {trip?.description && <span className="text-xs ml-1" style={{ color: "#5B8DB8" }}>· {trip.description}</span>}
                           </div>
+                          {user.role === "teacher" && trip && (
+                            <button onClick={() => removeTrip(trip.id)} className="w-6 h-6 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
+                              <Icon name="Trash2" size={12} className="text-red-400" />
+                            </button>
+                          )}
                         </div>
                       )}
 
