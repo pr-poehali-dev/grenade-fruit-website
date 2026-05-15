@@ -181,9 +181,11 @@ function LoginScreen({ onLogin }: { onLogin: (u: User) => void }) {
                 <span className="text-xs text-red-600">{error}</span>
               </div>
             )}
-            <p className="text-xs text-center" style={{ color: "#9B6A7A" }}>
-              {tab === "parent" ? <><b style={{ color: "#8B1A2F" }}>parent1</b> / <b style={{ color: "#8B1A2F" }}>parent1pass</b></> : <>Пароль: <b style={{ color: "#8B1A2F" }}>teacher2024</b></>}
-            </p>
+            {tab === "parent" && (
+              <p className="text-xs text-center" style={{ color: "#9B6A7A" }}>
+                <b style={{ color: "#8B1A2F" }}>parent1</b> / <b style={{ color: "#8B1A2F" }}>parent1pass</b>
+              </p>
+            )}
             <SaveBtn label={loading ? "Входим..." : "Войти в дневник 🍎"} loading={loading} />
           </form>
         </div>
