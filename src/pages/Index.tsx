@@ -165,7 +165,7 @@ function LoginScreen({ onLogin }: { onLogin: (u: User) => void }) {
 
       <div className="w-full max-w-sm animate-slide-up" style={{ position: "relative", zIndex: 10 }}>
         <div className="text-center mb-7">
-          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full mb-4 animate-pulse-glow" style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)" }}>
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-full mb-4 animate-pulse-glow" style={{ background: "#ffffff" }}>
             <img src="https://cdn.poehali.dev/projects/216115a8-6f23-4b25-a72a-91c740414743/bucket/4acd2a27-d58c-489e-8d93-6605b927987f.jpg" className="w-12 h-12 object-contain" alt="гранат" />
           </div>
           <div style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif", fontSize: 44, fontStyle: "italic", fontWeight: 700, lineHeight: 1 }}>Гранатовый</div>
@@ -280,7 +280,7 @@ export default function Index() {
       <header className="sticky top-0 z-50 border-b" style={{ background: "rgba(253,246,238,0.93)", backdropFilter: "blur(12px)", borderColor: "rgba(139,26,47,0.12)" }}>
         <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)" }}>
+            <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0" style={{ background: "#ffffff" }}>
               <img src="https://cdn.poehali.dev/projects/216115a8-6f23-4b25-a72a-91c740414743/bucket/4acd2a27-d58c-489e-8d93-6605b927987f.jpg" className="w-5 h-5 object-contain" alt="гранат" />
             </div>
             <div>
