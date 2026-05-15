@@ -517,7 +517,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [loadingWeek, setLoadingWeek] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<ScheduleItem | null>(null);
-  const [form, setForm] = useState({ day_of_week: "Понедельник", time_slot: "08:00–08:45", subject: "", teacher_name: "", room: "" });
+  const [form, setForm] = useState({ day_of_week: "Понедельник", time_slot: "08:00–08:45", subject: "", teacher_name: "", room: "", event_type: "lesson", event_name: "", event_description: "", event_date: "" });
   const [savingItem, setSavingItem] = useState(false);
 
   // Module calendar state
@@ -596,9 +596,18 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   const saveItem = async (e: React.FormEvent) => {
     e.preventDefault(); setSavingItem(true);
-    if (editing) await api("update_schedule", "POST", { ...form, id: editing.id });
-    else await api("add_schedule", "POST", { ...form, class_id: cls.id });
-    setSavingItem(false); setShowAdd(false); loadWeek();
+    if (form.event_type === "trip") {
+      await api("add_trip", "POST", { name: form.event_name, description: form.event_description, trip_date: form.event_date, date_end: form.event_date, class_id: cls.id });
+      loadBreaksHolidays();
+    } else if (form.event_type === "holiday") {
+      await api("add_holiday", "POST", { name: form.event_name, holiday_date: form.event_date });
+      loadBreaksHolidays();
+    } else {
+      if (editing) await api("update_schedule", "POST", { ...form, id: editing.id });
+      else await api("add_schedule", "POST", { ...form, class_id: cls.id });
+      loadWeek();
+    }
+    setSavingItem(false); setShowAdd(false);
   };
 
   const delItem = async (id: number) => {
@@ -826,8 +835,8 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                         </div>
                         <span className="text-xs" style={{ color: "#9B6A7A" }}>{dateLabel}</span>
                         {isToday && <span className="text-xs font-semibold" style={{ color: "#8B1A2F" }}>· сегодня</span>}
-                        {user.role === "teacher" && !isBreakDay && !isHolidayDay && (
-                          <button onClick={() => { setEditing(null); setForm({ day_of_week: dayName, time_slot: "08:00–08:45", subject: "", teacher_name: "", room: "" }); setShowAdd(true); }}
+                        {user.role === "teacher" && !isBreakDay && (
+                          <button onClick={() => { setEditing(null); setForm({ day_of_week: dayName, time_slot: "08:00–08:45", subject: "", teacher_name: "", room: "", event_type: "lesson", event_name: "", event_description: "", event_date: iso }); setShowAdd(true); }}
                             className="ml-auto w-6 h-6 rounded-lg flex items-center justify-center hover:bg-pink-100 transition-colors">
                             <Icon name="Plus" size={13} style={{ color: "#8B1A2F" }} />
                           </button>
@@ -1034,34 +1043,60 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
         </>
       )}
 
-      {/* ── MODAL: edit/add single lesson (week view) ── */}
+      {/* ── MODAL: edit/add single lesson / trip / holiday (week view) ── */}
       {showAdd && (
-        <Modal title={editing ? "Редактировать урок" : "Новый урок"} onClose={() => setShowAdd(false)}>
+        <Modal title={editing ? "Редактировать урок" : "Добавить в расписание"} onClose={() => setShowAdd(false)}>
           <form onSubmit={saveItem} className="space-y-3">
-            <Field label="День недели">
-              <Select value={form.day_of_week} onChange={e => setForm(f => ({ ...f, day_of_week: e.target.value }))}>
-                {DAYS.map(d => <option key={d}>{d}</option>)}
-              </Select>
-            </Field>
-            <Field label="Время">
-              <Select value={form.time_slot} onChange={e => setForm(f => ({ ...f, time_slot: e.target.value }))} required>
-                <option value="">— Выберите время —</option>
-                {["10:00–10:40","10:50–11:30","12:00–12:40","12:50–13:30","13:40–14:20"].map(t => <option key={t} value={t}>{t}</option>)}
-              </Select>
-            </Field>
-            <Field label="Предмет">
-              <Select value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} required>
-                <option value="">— Выберите предмет —</option>
-                {getSubjectsByGrade(cls.grade).map(s => <option key={s} value={s}>{s}</option>)}
-              </Select>
-            </Field>
-            <Field label="Учитель">
-              <Select value={form.teacher_name} onChange={e => setForm(f => ({ ...f, teacher_name: e.target.value }))} required>
-                <option value="">— Выберите педагога —</option>
-                {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
-              </Select>
-            </Field>
-            <Field label="Кабинет"><Input value={form.room} onChange={e => setForm(f => ({ ...f, room: e.target.value }))} placeholder="305" required /></Field>
+            {!editing && (
+              <div className="grid grid-cols-3 gap-1 p-1 rounded-xl" style={{ background: "#F5E0E5" }}>
+                {[{ val: "lesson", label: "📚 Урок" }, { val: "trip", label: "🚌 Выезд" }, { val: "holiday", label: "🎉 Праздник" }].map(({ val, label }) => (
+                  <button key={val} type="button" onClick={() => setForm(f => ({ ...f, event_type: val }))}
+                    className="py-1.5 text-xs font-semibold rounded-lg transition-colors"
+                    style={{ background: form.event_type === val ? "#8B1A2F" : "transparent", color: form.event_type === val ? "white" : "#8B1A2F" }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {form.event_type === "lesson" && (<>
+              <Field label="День недели">
+                <Select value={form.day_of_week} onChange={e => setForm(f => ({ ...f, day_of_week: e.target.value }))}>
+                  {DAYS.map(d => <option key={d}>{d}</option>)}
+                </Select>
+              </Field>
+              <Field label="Время">
+                <Select value={form.time_slot} onChange={e => setForm(f => ({ ...f, time_slot: e.target.value }))} required>
+                  <option value="">— Выберите время —</option>
+                  {["10:00–10:40","10:50–11:30","12:00–12:40","12:50–13:30","13:40–14:20"].map(t => <option key={t} value={t}>{t}</option>)}
+                </Select>
+              </Field>
+              <Field label="Предмет">
+                <Select value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} required>
+                  <option value="">— Выберите предмет —</option>
+                  {getSubjectsByGrade(cls.grade).map(s => <option key={s} value={s}>{s}</option>)}
+                </Select>
+              </Field>
+              <Field label="Учитель">
+                <Select value={form.teacher_name} onChange={e => setForm(f => ({ ...f, teacher_name: e.target.value }))} required>
+                  <option value="">— Выберите педагога —</option>
+                  {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
+                </Select>
+              </Field>
+              <Field label="Кабинет"><Input value={form.room} onChange={e => setForm(f => ({ ...f, room: e.target.value }))} placeholder="305" required /></Field>
+            </>)}
+
+            {form.event_type === "trip" && (<>
+              <Field label="Название выезда"><Input value={form.event_name} onChange={e => setForm(f => ({ ...f, event_name: e.target.value }))} placeholder="Поход в театр" required /></Field>
+              <Field label="Описание (необязательно)"><Input value={form.event_description} onChange={e => setForm(f => ({ ...f, event_description: e.target.value }))} placeholder="Театр им. Пушкина" /></Field>
+              <Field label="Дата"><Input type="date" value={form.event_date} onChange={e => setForm(f => ({ ...f, event_date: e.target.value }))} required /></Field>
+            </>)}
+
+            {form.event_type === "holiday" && (<>
+              <Field label="Название праздника"><Input value={form.event_name} onChange={e => setForm(f => ({ ...f, event_name: e.target.value }))} placeholder="День Победы" required /></Field>
+              <Field label="Дата"><Input type="date" value={form.event_date} onChange={e => setForm(f => ({ ...f, event_date: e.target.value }))} required /></Field>
+            </>)}
+
             <SaveBtn loading={savingItem} />
           </form>
         </Modal>
