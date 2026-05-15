@@ -1037,7 +1037,12 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                 {DAYS.map(d => <option key={d}>{d}</option>)}
               </Select>
             </Field>
-            <Field label="Время"><Input value={form.time_slot} onChange={e => setForm(f => ({ ...f, time_slot: e.target.value }))} placeholder="08:00–08:45" /></Field>
+            <Field label="Время">
+              <Select value={form.time_slot} onChange={e => setForm(f => ({ ...f, time_slot: e.target.value }))} required>
+                <option value="">— Выберите время —</option>
+                {["10:00–10:40","10:50–11:30","12:00–12:40","12:50–13:30","13:40–14:20"].map(t => <option key={t} value={t}>{t}</option>)}
+              </Select>
+            </Field>
             <Field label="Предмет">
               <Select value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} required>
                 <option value="">— Выберите предмет —</option>
@@ -1076,7 +1081,10 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                   <div className="space-y-2">
                     {weeklyTemplate[d].map((slot, i) => (
                       <div key={i} className="grid grid-cols-2 gap-2 p-3 rounded-xl" style={{ background: "#FDF6EE", border: "1px solid rgba(139,26,47,0.08)" }}>
-                        <Input value={slot.time_slot} onChange={e => updateSlot(d, i, "time_slot", e.target.value)} placeholder="08:00–08:45" />
+                        <Select value={slot.time_slot} onChange={e => updateSlot(d, i, "time_slot", e.target.value)}>
+                          <option value="">— Время —</option>
+                          {["10:00–10:40","10:50–11:30","12:00–12:40","12:50–13:30","13:40–14:20"].map(t => <option key={t} value={t}>{t}</option>)}
+                        </Select>
                         <div className="flex gap-1">
                           <Select value={slot.subject} onChange={e => updateSlot(d, i, "subject", e.target.value)}>
                             <option value="">— Предмет —</option>
