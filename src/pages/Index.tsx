@@ -680,6 +680,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [trips, setTrips] = useState<Trip[]>([]);
   const [savingModuleEdit, setSavingModuleEdit] = useState(false);
   const [newBreak, setNewBreak] = useState({ name: "", date_start: "", date_end: "" });
+  const [editingBreak, setEditingBreak] = useState<Break | null>(null);
   const [newHoliday, setNewHoliday] = useState({ name: "", holiday_date: "" });
   const [newTrip, setNewTrip] = useState({ name: "", description: "", trip_date: "", date_end: "" });
   const [savingBreak, setSavingBreak] = useState(false);
@@ -739,6 +740,16 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
     await api("add_break", "POST", newBreak);
     setNewBreak({ name: "", date_start: "", date_end: "" });
     setSavingBreak(false);
+    loadBreaksHolidays();
+  };
+
+  const saveBreakEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingBreak) return;
+    setSavingBreak(true);
+    await api("update_break", "POST", { id: editingBreak.id, name: editingBreak.name, date_start: editingBreak.date_start, date_end: editingBreak.date_end });
+    setSavingBreak(false);
+    setEditingBreak(null);
     loadBreaksHolidays();
   };
 
@@ -1226,16 +1237,35 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                 <div className="space-y-2">
                   {breaks.length === 0 && <Empty text="Каникулы не добавлены" />}
                   {breaks.map(b => (
-                    <div key={b.id} className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.1)" }}>
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold" style={{ color: "#3D1520" }}>{b.name}</p>
-                        <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>
-                          {new Date(b.date_start).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })} — {new Date(b.date_end).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
-                        </p>
-                      </div>
-                      <button onClick={() => removeBreak(b.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
-                        <Icon name="Trash2" size={13} className="text-red-400" />
-                      </button>
+                    <div key={b.id}>
+                      {editingBreak?.id === b.id ? (
+                        <form onSubmit={saveBreakEdit} className="p-3 rounded-xl space-y-2" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.25)" }}>
+                          <Input value={editingBreak.name} onChange={e => setEditingBreak(v => v ? { ...v, name: e.target.value } : v)} placeholder="Название каникул" required />
+                          <div className="grid grid-cols-2 gap-2">
+                            <Field label="Начало"><Input type="date" value={editingBreak.date_start} onChange={e => setEditingBreak(v => v ? { ...v, date_start: e.target.value } : v)} required /></Field>
+                            <Field label="Конец"><Input type="date" value={editingBreak.date_end} onChange={e => setEditingBreak(v => v ? { ...v, date_end: e.target.value } : v)} required /></Field>
+                          </div>
+                          <div className="flex gap-2">
+                            <SaveBtn label={savingBreak ? "Сохраняем..." : "Сохранить"} loading={savingBreak} />
+                            <button type="button" onClick={() => setEditingBreak(null)} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: "#9B6A7A" }}>Отмена</button>
+                          </div>
+                        </form>
+                      ) : (
+                        <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.1)" }}>
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold" style={{ color: "#3D1520" }}>{b.name}</p>
+                            <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>
+                              {new Date(b.date_start).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })} — {new Date(b.date_end).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
+                            </p>
+                          </div>
+                          <button onClick={() => setEditingBreak(b)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 shrink-0">
+                            <Icon name="Pencil" size={13} style={{ color: "#8B1A2F" }} />
+                          </button>
+                          <button onClick={() => removeBreak(b.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
+                            <Icon name="Trash2" size={13} className="text-red-400" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
