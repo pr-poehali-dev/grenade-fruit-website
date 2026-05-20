@@ -682,7 +682,9 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [newBreak, setNewBreak] = useState({ name: "", date_start: "", date_end: "" });
   const [editingBreak, setEditingBreak] = useState<Break | null>(null);
   const [newHoliday, setNewHoliday] = useState({ name: "", holiday_date: "" });
+  const [editingHoliday, setEditingHoliday] = useState<Holiday | null>(null);
   const [newTrip, setNewTrip] = useState({ name: "", description: "", trip_date: "", date_end: "" });
+  const [editingTrip, setEditingTrip] = useState<Trip | null>(null);
   const [savingBreak, setSavingBreak] = useState(false);
   const [savingHoliday, setSavingHoliday] = useState(false);
   const [savingTrip, setSavingTrip] = useState(false);
@@ -766,6 +768,16 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
     loadBreaksHolidays();
   };
 
+  const saveHolidayEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingHoliday) return;
+    setSavingHoliday(true);
+    await api("update_holiday", "POST", { id: editingHoliday.id, name: editingHoliday.name, holiday_date: editingHoliday.holiday_date });
+    setSavingHoliday(false);
+    setEditingHoliday(null);
+    loadBreaksHolidays();
+  };
+
   const removeHoliday = async (id: number) => {
     await api("delete_holiday", "POST", { id });
     loadBreaksHolidays();
@@ -776,6 +788,16 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
     await api("add_trip", "POST", { ...newTrip, class_id: cls.id, date_end: newTrip.date_end || newTrip.trip_date });
     setNewTrip({ name: "", description: "", trip_date: "", date_end: "" });
     setSavingTrip(false);
+    loadBreaksHolidays();
+  };
+
+  const saveTripEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTrip) return;
+    setSavingTrip(true);
+    await api("update_trip", "POST", { id: editingTrip.id, name: editingTrip.name, description: editingTrip.description, trip_date: editingTrip.trip_date, date_end: editingTrip.date_end || editingTrip.trip_date });
+    setSavingTrip(false);
+    setEditingTrip(null);
     loadBreaksHolidays();
   };
 
@@ -1287,17 +1309,33 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                 <div className="space-y-2">
                   {holidays.length === 0 && <Empty text="Праздники не добавлены" />}
                   {holidays.map(h => (
-                    <div key={h.id} className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.1)" }}>
-                      <span className="text-lg shrink-0">🎉</span>
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold" style={{ color: "#3D1520" }}>{h.name}</p>
-                        <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>
-                          {new Date(h.holiday_date).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}
-                        </p>
-                      </div>
-                      <button onClick={() => removeHoliday(h.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
-                        <Icon name="Trash2" size={13} className="text-red-400" />
-                      </button>
+                    <div key={h.id}>
+                      {editingHoliday?.id === h.id ? (
+                        <form onSubmit={saveHolidayEdit} className="p-3 rounded-xl space-y-2" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.25)" }}>
+                          <Input value={editingHoliday.name} onChange={e => setEditingHoliday(v => v ? { ...v, name: e.target.value } : v)} placeholder="Название праздника" required />
+                          <Field label="Дата"><Input type="date" value={editingHoliday.holiday_date} onChange={e => setEditingHoliday(v => v ? { ...v, holiday_date: e.target.value } : v)} required /></Field>
+                          <div className="flex gap-2">
+                            <SaveBtn label={savingHoliday ? "Сохраняем..." : "Сохранить"} loading={savingHoliday} />
+                            <button type="button" onClick={() => setEditingHoliday(null)} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: "#9B6A7A" }}>Отмена</button>
+                          </div>
+                        </form>
+                      ) : (
+                        <div className="flex items-center gap-3 p-3 rounded-xl" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.1)" }}>
+                          <span className="text-lg shrink-0">🎉</span>
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold" style={{ color: "#3D1520" }}>{h.name}</p>
+                            <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>
+                              {new Date(h.holiday_date).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}
+                            </p>
+                          </div>
+                          <button onClick={() => setEditingHoliday(h)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 shrink-0">
+                            <Icon name="Pencil" size={13} style={{ color: "#8B1A2F" }} />
+                          </button>
+                          <button onClick={() => removeHoliday(h.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
+                            <Icon name="Trash2" size={13} className="text-red-400" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -1316,22 +1354,42 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                 <div className="space-y-2">
                   {trips.length === 0 && <Empty text="Выезды не добавлены" />}
                   {trips.map(t => (
-                    <div key={t.id} className="flex items-start gap-3 p-3 rounded-xl"
-                      style={{ background: "rgba(33,150,243,0.05)", border: "1.5px solid rgba(33,150,243,0.2)" }}>
-                      <span className="text-lg shrink-0 mt-0.5">🚌</span>
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold" style={{ color: "#0D47A1" }}>{t.name}</p>
-                        <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>
-                          {new Date(t.trip_date).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
-                          {t.date_end && t.date_end !== t.trip_date && (
-                            <> — {new Date(t.date_end).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}</>
-                          )}
-                        </p>
-                        {t.description && <p className="text-xs mt-1" style={{ color: "#9B6A7A" }}>{t.description}</p>}
-                      </div>
-                      <button onClick={() => removeTrip(t.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
-                        <Icon name="Trash2" size={13} className="text-red-400" />
-                      </button>
+                    <div key={t.id}>
+                      {editingTrip?.id === t.id ? (
+                        <form onSubmit={saveTripEdit} className="p-3 rounded-xl space-y-2" style={{ background: "rgba(33,150,243,0.05)", border: "1.5px solid rgba(33,150,243,0.35)" }}>
+                          <Input value={editingTrip.name} onChange={e => setEditingTrip(v => v ? { ...v, name: e.target.value } : v)} placeholder="Название выезда" required />
+                          <Input value={editingTrip.description} onChange={e => setEditingTrip(v => v ? { ...v, description: e.target.value } : v)} placeholder="Описание (необязательно)" />
+                          <div className="grid grid-cols-2 gap-2">
+                            <Field label="Дата начала"><Input type="date" value={editingTrip.trip_date} onChange={e => setEditingTrip(v => v ? { ...v, trip_date: e.target.value } : v)} required /></Field>
+                            <Field label="Дата конца"><Input type="date" value={editingTrip.date_end} onChange={e => setEditingTrip(v => v ? { ...v, date_end: e.target.value } : v)} /></Field>
+                          </div>
+                          <div className="flex gap-2">
+                            <SaveBtn label={savingTrip ? "Сохраняем..." : "Сохранить"} loading={savingTrip} />
+                            <button type="button" onClick={() => setEditingTrip(null)} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: "#9B6A7A" }}>Отмена</button>
+                          </div>
+                        </form>
+                      ) : (
+                        <div className="flex items-start gap-3 p-3 rounded-xl"
+                          style={{ background: "rgba(33,150,243,0.05)", border: "1.5px solid rgba(33,150,243,0.2)" }}>
+                          <span className="text-lg shrink-0 mt-0.5">🚌</span>
+                          <div className="flex-1">
+                            <p className="text-sm font-semibold" style={{ color: "#0D47A1" }}>{t.name}</p>
+                            <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>
+                              {new Date(t.trip_date).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
+                              {t.date_end && t.date_end !== t.trip_date && (
+                                <> — {new Date(t.date_end).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}</>
+                              )}
+                            </p>
+                            {t.description && <p className="text-xs mt-1" style={{ color: "#9B6A7A" }}>{t.description}</p>}
+                          </div>
+                          <button onClick={() => setEditingTrip(t)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 shrink-0">
+                            <Icon name="Pencil" size={13} style={{ color: "#1565C0" }} />
+                          </button>
+                          <button onClick={() => removeTrip(t.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
+                            <Icon name="Trash2" size={13} className="text-red-400" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>

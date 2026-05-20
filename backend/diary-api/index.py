@@ -92,6 +92,10 @@ def handler(event: dict, context) -> dict:
         return handle_add_holiday(body)
     if action == "delete_holiday":
         return handle_delete_holiday(body)
+    if action == "update_holiday":
+        return handle_update_holiday(body)
+    if action == "update_trip":
+        return handle_update_trip(body)
     if action == "get_schedule":
         return handle_get_schedule(params)
     if action == "add_schedule":
@@ -447,6 +451,26 @@ def handle_add_trip(body):
     return ok(dict(row), 201)
 
 
+def handle_update_trip(body):
+    tid = body.get("id")
+    name = (body.get("name") or "").strip()
+    trip_date = (body.get("trip_date") or "").strip()
+    if not tid or not name or not trip_date:
+        return err("id, name, trip_date required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"UPDATE {SCHEMA}.trips SET name = %s, description = %s, trip_date = %s, date_end = %s WHERE id = %s RETURNING *",
+        (name, body.get("description", ""), trip_date, body.get("date_end") or trip_date, tid)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return err("Не найдено", 404)
+    return ok(dict(row))
+
+
 def handle_delete_trip(body):
     tid = body.get("id")
     if not tid:
@@ -554,6 +578,26 @@ def handle_add_holiday(body):
     conn.commit()
     conn.close()
     return ok(dict(row), 201)
+
+
+def handle_update_holiday(body):
+    hid = body.get("id")
+    name = (body.get("name") or "").strip()
+    holiday_date = (body.get("holiday_date") or "").strip()
+    if not hid or not name or not holiday_date:
+        return err("id, name, holiday_date required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"UPDATE {SCHEMA}.holidays SET name = %s, holiday_date = %s WHERE id = %s RETURNING *",
+        (name, holiday_date, hid)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return err("Не найдено", 404)
+    return ok(dict(row))
 
 
 def handle_delete_holiday(body):
