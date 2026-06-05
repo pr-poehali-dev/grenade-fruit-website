@@ -517,7 +517,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [loadingWeek, setLoadingWeek] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<ScheduleItem | null>(null);
-  const [form, setForm] = useState({ day_of_week: "Понедельник", time_slot: "08:00–08:45", subject: "", teacher_name: "", room: "", event_type: "lesson", event_name: "", event_description: "", event_date: "" });
+  const [form, setForm] = useState({ day_of_week: "Понедельник", time_slot: "09:00–09:40", subject: "", teacher_name: "", room: "", event_type: "lesson", event_name: "", event_description: "", event_date: "" });
   const [savingItem, setSavingItem] = useState(false);
 
   // Module calendar state
@@ -1111,7 +1111,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
               <Field label="Время">
                 <Select value={form.time_slot} onChange={e => setForm(f => ({ ...f, time_slot: e.target.value }))} required>
                   <option value="">— Выберите время —</option>
-                  {["10:00–10:40","10:50–11:30","12:00–12:40","12:50–13:30","13:40–14:20"].map(t => <option key={t} value={t}>{t}</option>)}
+                  {["09:00–09:40","10:00–10:40","10:50–11:30","12:00–12:40","12:50–13:30","13:40–14:20"].map(t => <option key={t} value={t}>{t}</option>)}
                 </Select>
               </Field>
               <Field label="Предмет">
@@ -1172,7 +1172,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                       <div key={i} className="grid grid-cols-2 gap-2 p-3 rounded-xl" style={{ background: "#FDF6EE", border: "1px solid rgba(139,26,47,0.08)" }}>
                         <Select value={slot.time_slot} onChange={e => updateSlot(d, i, "time_slot", e.target.value)}>
                           <option value="">— Время —</option>
-                          {["10:00–10:40","10:50–11:30","12:00–12:40","12:50–13:30","13:40–14:20"].map(t => <option key={t} value={t}>{t}</option>)}
+                          {["09:00–09:40","10:00–10:40","10:50–11:30","12:00–12:40","12:50–13:30","13:40–14:20"].map(t => <option key={t} value={t}>{t}</option>)}
                         </Select>
                         <div className="flex gap-1">
                           <Select value={slot.subject} onChange={e => updateSlot(d, i, "subject", e.target.value)}>
