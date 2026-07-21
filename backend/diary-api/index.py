@@ -118,6 +118,14 @@ def handler(event: dict, context) -> dict:
         return handle_get_grades(params)
     if action == "add_grade":
         return handle_add_grade(body)
+    if action == "get_attendance":
+        return handle_get_attendance(params)
+    if action == "add_attendance":
+        return handle_add_attendance(body)
+    if action == "update_attendance":
+        return handle_update_attendance(body)
+    if action == "delete_attendance":
+        return handle_delete_attendance(body)
     if action == "get_files":
         return handle_get_files(params)
     if action == "get_recommendations":
@@ -840,6 +848,92 @@ def handle_add_grade(body):
     conn.commit()
     conn.close()
     return ok(dict(row), 201)
+
+
+# ── Attendance ────────────────────────────────────────────
+def handle_get_attendance(params):
+    student_id = params.get("student_id")
+    class_id = params.get("class_id")
+    lesson_date = params.get("lesson_date")
+    conn = get_conn()
+    cur = conn.cursor()
+    query = f"""SELECT a.*, s.full_name as student_name FROM {SCHEMA}.attendance a
+                JOIN {SCHEMA}.students s ON s.id = a.student_id WHERE 1=1"""
+    args = []
+    if student_id:
+        query += " AND a.student_id = %s"
+        args.append(student_id)
+    if class_id:
+        query += " AND a.class_id = %s"
+        args.append(class_id)
+    if lesson_date:
+        query += " AND a.lesson_date = %s"
+        args.append(lesson_date)
+    query += " ORDER BY a.lesson_date DESC, a.created_at DESC"
+    cur.execute(query, tuple(args))
+    rows = cur.fetchall()
+    conn.close()
+    return ok(list(rows))
+
+
+def handle_add_attendance(body):
+    student_id = body.get("student_id")
+    subject = (body.get("subject") or "").strip()
+    status = body.get("status")
+    lesson_date = body.get("lesson_date")
+    class_id = body.get("class_id")
+    if not student_id or not subject or status not in ("absent", "late") or not lesson_date:
+        return err("student_id, subject, status (absent/late), lesson_date required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"""INSERT INTO {SCHEMA}.attendance (student_id, class_id, subject, status, comment, lesson_date, teacher_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *""",
+        (student_id, class_id, subject, status, body.get("comment", ""), lesson_date, body.get("teacher_id"))
+    )
+    row = cur.fetchone()
+    cur.execute(f"SELECT parent_id FROM {SCHEMA}.parent_students WHERE student_id = %s", (student_id,))
+    label = "Опоздание" if status == "late" else "Отсутствие"
+    for p in cur.fetchall():
+        cur.execute(
+            f"INSERT INTO {SCHEMA}.notifications (parent_id, text, type) VALUES (%s, %s, 'attendance')",
+            (p["parent_id"], f"{label} по «{subject}» ({lesson_date})")
+        )
+    conn.commit()
+    conn.close()
+    return ok(dict(row), 201)
+
+
+def handle_update_attendance(body):
+    aid = body.get("id")
+    status = body.get("status")
+    if not aid or status not in ("absent", "late"):
+        return err("id, status (absent/late) required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"""UPDATE {SCHEMA}.attendance SET status = %s, subject = %s, comment = %s, lesson_date = %s
+            WHERE id = %s RETURNING *""",
+        (status, body.get("subject"), body.get("comment", ""), body.get("lesson_date"), aid)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return err("Не найдено", 404)
+    return ok(dict(row))
+
+
+def handle_delete_attendance(body):
+    aid = body.get("id")
+    if not aid:
+        return err("id required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"DELETE FROM {SCHEMA}.attendance WHERE id = %s", (aid,))
+    conn.commit()
+    conn.close()
+    return ok({"ok": True})
 
 
 # ── Files ─────────────────────────────────────────────────

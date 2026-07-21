@@ -15,7 +15,7 @@ async function api(action: string, method = "GET", body?: object) {
 
 // ─── Types ────────────────────────────────────────────────
 type Role = "teacher" | "parent";
-type Tab = "classes" | "parents" | "schedule" | "homework" | "grades" | "files" | "recommendations";
+type Tab = "classes" | "parents" | "schedule" | "homework" | "grades" | "attendance" | "files" | "recommendations";
 
 interface User { id: number; login: string; role: Role; display_name: string; child?: string; child_id?: number; class_id?: number; }
 interface SchoolClass { id: number; name: string; grade: number; letter: string; display_name?: string; }
@@ -28,6 +28,7 @@ interface Holiday { id: number; name: string; holiday_date: string; school_year:
 interface Trip { id: number; class_id: number; name: string; description: string; trip_date: string; date_end: string; }
 interface Homework { id: number; subject: string; task: string; due_date: string; class_id: number; }
 interface Grade { id: number; student_id: number; subject: string; grade: number; comment: string; grade_date: string; student_name: string; }
+interface Attendance { id: number; student_id: number; subject: string; status: "absent" | "late"; comment: string; lesson_date: string; student_name: string; }
 interface FileItem { id: number; name: string; subject: string; teacher_name: string; upload_date: string; size_label: string; s3_key: string; }
 interface Recommendation { id: number; subject: string; text: string; rec_date: string; student_name: string; teacher_name: string; }
 interface Notification { id: number; text: string; type: string; is_read: boolean; created_at: string; }
@@ -123,7 +124,7 @@ function SaveBtn({ label = "Сохранить", loading }: { label?: string; lo
 
 const DAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница"];
 const TEACHERS = ["Елена Сергеевна", "Александр Валерьевич", "Лариса Ивановна", "Олеся Александровна", "Ирина Олеговна", "Любовь Александровна", "Вадим Игоревич"];
-const NOTIF_EMOJI: Record<string, string> = { grade: "⭐", homework: "📚", recommendation: "💬", file: "📎" };
+const NOTIF_EMOJI: Record<string, string> = { grade: "⭐", homework: "📚", recommendation: "💬", file: "📎", attendance: "🚸" };
 
 const SUBJECTS_BY_GRADE: Record<string, string[]> = {
   "1-2": ["Математика", "Русский язык", "Английский язык", "Естествознание", "Урок осознанности", "Классный час", "ЖЗЛ", "ИЗО", "Нейротренинг", "Чтение по программе", "История искусств", "Чтение современной литературы", "ОФП"],
@@ -268,6 +269,7 @@ export default function Index() {
     { id: "schedule" as Tab, label: "Расписание", emoji: "📅" },
     { id: "homework" as Tab, label: "ДЗ", emoji: "📚" },
     { id: "grades" as Tab, label: "Отметки", emoji: "⭐" },
+    { id: "attendance" as Tab, label: "Посещаемость", emoji: "🚸" },
     { id: "files" as Tab, label: "Файлы", emoji: "📎" },
     { id: "recommendations" as Tab, label: "Советы", emoji: "💬" },
   ];
@@ -446,6 +448,7 @@ export default function Index() {
                 {tab === "schedule" && <ScheduleTab cls={selectedClass} user={user} />}
                 {tab === "homework" && <HomeworkTab cls={selectedClass} user={user} />}
                 {tab === "grades" && <GradesTab cls={selectedClass} user={user} />}
+                {tab === "attendance" && <AttendanceTab cls={selectedClass} user={user} />}
                 {tab === "files" && <FilesTab cls={selectedClass} />}
                 {tab === "recommendations" && <RecsTab cls={selectedClass} user={user} />}
                 {tab === "classes" && user.role === "teacher" && <StudentsTab cls={selectedClass} />}
@@ -1642,6 +1645,142 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
                 </Field>
                 <Field label="Комментарий"><Input value={form.comment} onChange={e => setForm(f => ({ ...f, comment: e.target.value }))} placeholder="Необязательно" /></Field>
                 <Field label="Дата"><Input value={form.grade_date} onChange={e => setForm(f => ({ ...f, grade_date: e.target.value }))} placeholder="13 мая" required /></Field>
+                <SaveBtn loading={saving} />
+              </form>
+            </Modal>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ─── Attendance Tab ────────────────────────────────────────
+function AttendanceTab({ cls, user }: { cls: SchoolClass; user: User }) {
+  const [records, setRecords] = useState<Attendance[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<Attendance | null>(null);
+  const [form, setForm] = useState({ student_id: "", subject: "", status: "absent", comment: "", lesson_date: "" });
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const query = user.role === "parent" && user.child_id ? `student_id=${user.child_id}` : `class_id=${cls.id}`;
+    const [a, s] = await Promise.all([
+      api(`get_attendance&${query}`),
+      user.role === "teacher" ? api(`get_students&class_id=${cls.id}`) : Promise.resolve([]),
+    ]);
+    if (Array.isArray(a)) setRecords(a);
+    if (Array.isArray(s)) setStudents(s);
+    setLoading(false);
+  }, [cls.id, user]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const openAdd = () => {
+    setEditing(null);
+    setForm({ student_id: "", subject: "", status: "absent", comment: "", lesson_date: new Date().toISOString().split("T")[0] });
+    setShowAdd(true);
+  };
+
+  const openEdit = (rec: Attendance) => {
+    setEditing(rec);
+    setForm({ student_id: String(rec.student_id), subject: rec.subject, status: rec.status, comment: rec.comment, lesson_date: rec.lesson_date });
+    setShowAdd(true);
+  };
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    if (editing) {
+      await api("update_attendance", "POST", { ...form, id: editing.id });
+    } else {
+      await api("add_attendance", "POST", { ...form, teacher_id: user.id, class_id: cls.id });
+    }
+    setSaving(false); setShowAdd(false); setEditing(null); load();
+  };
+
+  const remove = async (id: number) => {
+    await api("delete_attendance", "POST", { id });
+    load();
+  };
+
+  const lateCount = records.filter(r => r.status === "late").length;
+  const absentCount = records.filter(r => r.status === "absent").length;
+
+  return (
+    <div>
+      <SectionTitle emoji="🚸" title={`Посещаемость · ${cls.display_name || cls.name}`} sub={user.role === "parent" ? user.child : undefined} />
+      {!loading && (lateCount > 0 || absentCount > 0) && (
+        <div className="flex gap-2 mb-4 flex-wrap">
+          {absentCount > 0 && (
+            <div className="px-4 py-2 rounded-2xl flex items-center gap-2" style={{ background: "rgba(244,67,54,0.12)", color: "#b71c1c" }}>
+              <span className="text-sm font-semibold">Отсутствий: {absentCount}</span>
+            </div>
+          )}
+          {lateCount > 0 && (
+            <div className="px-4 py-2 rounded-2xl flex items-center gap-2" style={{ background: "rgba(255,152,0,0.12)", color: "#e65100" }}>
+              <span className="text-sm font-semibold">Опозданий: {lateCount}</span>
+            </div>
+          )}
+        </div>
+      )}
+      {loading ? <Loader /> : (
+        <div className="space-y-3">
+          {records.length === 0 && <Empty text="Записей нет" />}
+          {records.map((r, i) => (
+            <div key={r.id} className="flex items-start gap-3 p-4 rounded-2xl card-hover animate-slide-up"
+              style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.06}s`, opacity: 0 }}>
+              <div className="w-10 h-10 rounded-full flex items-center justify-center text-lg shrink-0"
+                style={{ background: r.status === "late" ? "rgba(255,152,0,0.15)" : "rgba(244,67,54,0.15)" }}>
+                {r.status === "late" ? "⏰" : "🚫"}
+              </div>
+              <div className="flex-1">
+                <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                  <span className="font-semibold text-sm" style={{ color: "#3D1520" }}>{r.subject}</span>
+                  <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: r.status === "late" ? "rgba(255,152,0,0.15)" : "rgba(244,67,54,0.15)", color: r.status === "late" ? "#e65100" : "#b71c1c" }}>
+                    {r.status === "late" ? "Опоздание" : "Отсутствие"}
+                  </span>
+                  {user.role === "teacher" && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{r.student_name}</span>}
+                </div>
+                {r.comment && <p className="text-sm" style={{ color: "#9B6A7A" }}>{r.comment}</p>}
+              </div>
+              <span className="text-xs shrink-0" style={{ color: "#9B6A7A" }}>
+                {new Date(r.lesson_date).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
+              </span>
+              {user.role === "teacher" && (
+                <div className="flex gap-1 shrink-0">
+                  <button onClick={() => openEdit(r)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100"><Icon name="Pencil" size={13} style={{ color: "#8B1A2F" }} /></button>
+                  <button onClick={() => remove(r.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50"><Icon name="Trash2" size={13} className="text-red-400" /></button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      {user.role === "teacher" && (
+        <>
+          <AddBtn label="Отметить опоздание/отсутствие" onClick={openAdd} />
+          {showAdd && (
+            <Modal title={editing ? "Изменить запись" : "Новая запись"} onClose={() => { setShowAdd(false); setEditing(null); }}>
+              <form onSubmit={save} className="space-y-3">
+                <Field label="Ученик">
+                  <Select value={form.student_id} onChange={e => setForm(f => ({ ...f, student_id: e.target.value }))} required disabled={!!editing}>
+                    <option value="">Выберите ученика</option>
+                    {students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Предмет"><Input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="Математика" required /></Field>
+                <Field label="Тип">
+                  <Select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
+                    <option value="absent">Отсутствие</option>
+                    <option value="late">Опоздание</option>
+                  </Select>
+                </Field>
+                <Field label="Дата"><Input type="date" value={form.lesson_date} onChange={e => setForm(f => ({ ...f, lesson_date: e.target.value }))} required /></Field>
+                <Field label="Комментарий"><Input value={form.comment} onChange={e => setForm(f => ({ ...f, comment: e.target.value }))} placeholder="Необязательно" /></Field>
                 <SaveBtn loading={saving} />
               </form>
             </Modal>
