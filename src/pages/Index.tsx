@@ -1561,6 +1561,25 @@ function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
   );
 }
 
+// ─── Дата с русским месяцем → ISO (для сопоставления с модулем) ──
+const RU_MONTHS: Record<string, number> = {
+  "января": 0, "февраля": 1, "марта": 2, "апреля": 3, "мая": 4, "июня": 5,
+  "июля": 6, "августа": 7, "сентября": 8, "октября": 9, "ноября": 10, "декабря": 11,
+};
+function parseRuDateInModule(dateStr: string, mod: Module): string | null {
+  const parts = (dateStr || "").trim().toLowerCase().split(" ");
+  if (parts.length < 2) return null;
+  const day = parseInt(parts[0], 10);
+  const month = RU_MONTHS[parts[1]];
+  if (isNaN(day) || month === undefined) return null;
+  const years = new Set([new Date(mod.date_start).getFullYear(), new Date(mod.date_end).getFullYear()]);
+  for (const year of years) {
+    const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    if (iso >= mod.date_start && iso <= mod.date_end) return iso;
+  }
+  return null;
+}
+
 // ─── Grades Tab ────────────────────────────────────────────
 function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [grades, setGrades] = useState<Grade[]>([]);
@@ -1569,6 +1588,11 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ student_id: "", subject: "", grade: "5", comment: "", grade_date: "" });
   const [saving, setSaving] = useState(false);
+
+  // Модули (учебные периоды) для сводки
+  const [modules, setModules] = useState<Module[]>([]);
+  const [selectedModule, setSelectedModule] = useState<Module | null>(null);
+  const [showSummary, setShowSummary] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1584,6 +1608,17 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   useEffect(() => { load(); }, [load]);
 
+  useEffect(() => {
+    api("get_modules").then(data => {
+      if (Array.isArray(data)) {
+        setModules(data);
+        const todayIso = new Date().toISOString().split("T")[0];
+        const current = data.find((m: Module) => todayIso >= m.date_start && todayIso <= m.date_end);
+        setSelectedModule(current || data[0] || null);
+      }
+    });
+  }, []);
+
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -1592,6 +1627,18 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
   };
 
   const stats = [5, 4, 3, 2].map(g => ({ g, count: grades.filter(gr => gr.grade === g).length })).filter(x => x.count > 0);
+
+  const moduleGrades = selectedModule
+    ? grades.filter(g => parseRuDateInModule(g.grade_date, selectedModule) !== null)
+    : grades;
+
+  const moduleStats = [5, 4, 3, 2, 1].map(g => ({ g, count: moduleGrades.filter(gr => gr.grade === g).length })).filter(x => x.count > 0);
+
+  const studentSummary = students.map(s => {
+    const recs = moduleGrades.filter(g => g.student_id === s.id);
+    const avg = recs.length ? recs.reduce((sum, g) => sum + g.grade, 0) / recs.length : 0;
+    return { student: s, count: recs.length, avg };
+  }).filter(x => x.count > 0);
 
   return (
     <div>
@@ -1605,6 +1652,13 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
             </div>
           ))}
         </div>
+      )}
+      {modules.length > 0 && (
+        <button onClick={() => setShowSummary(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium mb-4 transition-all hover:opacity-80"
+          style={{ background: "white", color: "#8B1A2F", border: "1.5px solid rgba(139,26,47,0.2)" }}>
+          <Icon name="BarChart3" size={13} /> Сводка за модуль
+        </button>
       )}
       {loading ? <Loader /> : (
         <div className="space-y-3">
@@ -1650,6 +1704,45 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
             </Modal>
           )}
         </>
+      )}
+      {showSummary && (
+        <Modal title="Сводка за модуль" onClose={() => setShowSummary(false)}>
+          <div className="space-y-3">
+            <Field label="Модуль">
+              <Select value={selectedModule?.id || ""} onChange={e => setSelectedModule(modules.find(m => m.id === Number(e.target.value)) || null)}>
+                {modules.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </Select>
+            </Field>
+            {selectedModule && (
+              <p className="text-xs" style={{ color: "#9B6A7A" }}>
+                {new Date(selectedModule.date_start).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })} — {new Date(selectedModule.date_end).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
+              </p>
+            )}
+            {moduleStats.length > 0 ? (
+              <div className="flex gap-2 flex-wrap">
+                {moduleStats.map(({ g, count }) => (
+                  <div key={g} className={`px-4 py-2 rounded-2xl grade-${g} flex items-center gap-2`}>
+                    <span className="text-xl font-bold" style={{ fontFamily: "Cormorant, serif" }}>{g}</span>
+                    <span className="text-sm font-medium">× {count}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <Empty text="За этот модуль отметок нет" />
+            )}
+            {user.role === "teacher" && studentSummary.length > 0 && (
+              <div className="space-y-2 pt-2">
+                {studentSummary.map(({ student, count, avg }) => (
+                  <div key={student.id} className="flex items-center gap-3 px-4 py-2.5 rounded-2xl" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.08)" }}>
+                    <p className="font-medium text-sm flex-1" style={{ color: "#3D1520" }}>{student.full_name}</p>
+                    <span className="text-xs" style={{ color: "#9B6A7A" }}>{count} отметок</span>
+                    <span className="text-sm font-bold px-2 py-0.5 rounded-full" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>ср. {avg.toFixed(1)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Modal>
       )}
     </div>
   );
