@@ -1665,6 +1665,11 @@ function AttendanceTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [form, setForm] = useState({ student_id: "", subject: "", status: "absent", comment: "", lesson_date: "" });
   const [saving, setSaving] = useState(false);
 
+  // Модули (учебные периоды) для сводки
+  const [modules, setModules] = useState<Module[]>([]);
+  const [selectedModule, setSelectedModule] = useState<Module | null>(null);
+  const [showSummary, setShowSummary] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     const query = user.role === "parent" && user.child_id ? `student_id=${user.child_id}` : `class_id=${cls.id}`;
@@ -1678,6 +1683,30 @@ function AttendanceTab({ cls, user }: { cls: SchoolClass; user: User }) {
   }, [cls.id, user]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    api("get_modules").then(data => {
+      if (Array.isArray(data)) {
+        setModules(data);
+        const todayIso = new Date().toISOString().split("T")[0];
+        const current = data.find((m: Module) => todayIso >= m.date_start && todayIso <= m.date_end);
+        setSelectedModule(current || data[0] || null);
+      }
+    });
+  }, []);
+
+  const moduleRecords = selectedModule
+    ? records.filter(r => r.lesson_date >= selectedModule.date_start && r.lesson_date <= selectedModule.date_end)
+    : records;
+
+  const studentSummary = students.map(s => {
+    const recs = moduleRecords.filter(r => r.student_id === s.id);
+    return {
+      student: s,
+      absent: recs.filter(r => r.status === "absent").length,
+      late: recs.filter(r => r.status === "late").length,
+    };
+  }).filter(x => x.absent > 0 || x.late > 0);
 
   const openAdd = () => {
     setEditing(null);
@@ -1726,6 +1755,13 @@ function AttendanceTab({ cls, user }: { cls: SchoolClass; user: User }) {
             </div>
           )}
         </div>
+      )}
+      {modules.length > 0 && (
+        <button onClick={() => setShowSummary(true)}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium mb-4 transition-all hover:opacity-80"
+          style={{ background: "white", color: "#8B1A2F", border: "1.5px solid rgba(139,26,47,0.2)" }}>
+          <Icon name="BarChart3" size={13} /> Сводка за модуль
+        </button>
       )}
       {loading ? <Loader /> : (
         <div className="space-y-3">
@@ -1786,6 +1822,42 @@ function AttendanceTab({ cls, user }: { cls: SchoolClass; user: User }) {
             </Modal>
           )}
         </>
+      )}
+      {showSummary && (
+        <Modal title="Сводка за модуль" onClose={() => setShowSummary(false)}>
+          <div className="space-y-3">
+            <Field label="Модуль">
+              <Select value={selectedModule?.id || ""} onChange={e => setSelectedModule(modules.find(m => m.id === Number(e.target.value)) || null)}>
+                {modules.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </Select>
+            </Field>
+            {selectedModule && (
+              <p className="text-xs" style={{ color: "#9B6A7A" }}>
+                {new Date(selectedModule.date_start).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })} — {new Date(selectedModule.date_end).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
+              </p>
+            )}
+            <div className="flex gap-2 flex-wrap">
+              <div className="px-4 py-2 rounded-2xl flex items-center gap-2" style={{ background: "rgba(244,67,54,0.12)", color: "#b71c1c" }}>
+                <span className="text-sm font-semibold">Отсутствий: {moduleRecords.filter(r => r.status === "absent").length}</span>
+              </div>
+              <div className="px-4 py-2 rounded-2xl flex items-center gap-2" style={{ background: "rgba(255,152,0,0.12)", color: "#e65100" }}>
+                <span className="text-sm font-semibold">Опозданий: {moduleRecords.filter(r => r.status === "late").length}</span>
+              </div>
+            </div>
+            {user.role === "teacher" && (
+              <div className="space-y-2 pt-2">
+                {studentSummary.length === 0 && <Empty text="За этот модуль пропусков нет" />}
+                {studentSummary.map(({ student, absent, late }) => (
+                  <div key={student.id} className="flex items-center gap-3 px-4 py-2.5 rounded-2xl" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.08)" }}>
+                    <p className="font-medium text-sm flex-1" style={{ color: "#3D1520" }}>{student.full_name}</p>
+                    {absent > 0 && <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: "rgba(244,67,54,0.15)", color: "#b71c1c" }}>🚫 {absent}</span>}
+                    {late > 0 && <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: "rgba(255,152,0,0.15)", color: "#e65100" }}>⏰ {late}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </Modal>
       )}
     </div>
   );
