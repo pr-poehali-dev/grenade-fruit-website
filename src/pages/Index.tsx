@@ -1023,45 +1023,55 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
                     return (
                       <div key={date}>
-                        <button
-                          onClick={() => setSelectedDate(active ? null : date)}
-                          className="w-full flex items-center gap-3 p-3 rounded-2xl transition-all hover:opacity-90"
+                        <div className="w-full flex items-center gap-2 rounded-2xl transition-all"
                           style={{
                             background: isToday(date) ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : active ? "#F5E0E5" : "white",
                             border: `1.5px solid ${isToday(date) ? "transparent" : "rgba(139,26,47,0.1)"}`,
                           }}>
-                          <div className="w-12 text-center shrink-0">
-                            <p className="text-lg font-bold leading-none" style={{ color: isToday(date) ? "white" : "#8B1A2F", fontFamily: "Cormorant, serif" }}>
-                              {new Date(date).getDate()}
-                            </p>
-                            <p className="text-xs mt-0.5" style={{ color: isToday(date) ? "rgba(255,255,255,0.8)" : "#9B6A7A" }}>
-                              {new Date(date).toLocaleDateString("ru-RU", { month: "short" })}
-                            </p>
-                          </div>
-                          <div className="flex-1 text-left">
-                            <p className="text-xs font-medium" style={{ color: isToday(date) ? "rgba(255,255,255,0.7)" : "#9B6A7A" }}>
-                              {formatDay(date)}
-                            </p>
-                            {isTrip && trip && (
-                              <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full mr-1"
-                                style={{ background: "rgba(33,150,243,0.15)", color: "#1565C0" }}>
-                                🚌 {trip.name}
-                              </span>
-                            )}
-                            {lessons.length > 0 ? (
-                              <p className="text-sm font-medium mt-0.5" style={{ color: isToday(date) ? "white" : "#3D1520" }}>
-                                {lessons.length} {lessons.length === 1 ? "урок" : lessons.length < 5 ? "урока" : "уроков"}
-                                {" · "}{lessons.map(l => l.subject).slice(0, 3).join(", ")}
-                                {lessons.length > 3 ? "..." : ""}
+                          <button
+                            onClick={() => setSelectedDate(active ? null : date)}
+                            className="flex-1 flex items-center gap-3 p-3 rounded-2xl transition-all hover:opacity-90 text-left">
+                            <div className="w-12 text-center shrink-0">
+                              <p className="text-lg font-bold leading-none" style={{ color: isToday(date) ? "white" : "#8B1A2F", fontFamily: "Cormorant, serif" }}>
+                                {new Date(date).getDate()}
                               </p>
-                            ) : (
-                              <p className="text-sm mt-0.5" style={{ color: isToday(date) ? "rgba(255,255,255,0.5)" : "#C4B0B5" }}>нет уроков</p>
+                              <p className="text-xs mt-0.5" style={{ color: isToday(date) ? "rgba(255,255,255,0.8)" : "#9B6A7A" }}>
+                                {new Date(date).toLocaleDateString("ru-RU", { month: "short" })}
+                              </p>
+                            </div>
+                            <div className="flex-1 text-left">
+                              <p className="text-xs font-medium" style={{ color: isToday(date) ? "rgba(255,255,255,0.7)" : "#9B6A7A" }}>
+                                {formatDay(date)}
+                              </p>
+                              {isTrip && trip && (
+                                <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full mr-1"
+                                  style={{ background: "rgba(33,150,243,0.15)", color: "#1565C0" }}>
+                                  🚌 {trip.name}
+                                </span>
+                              )}
+                              {lessons.length > 0 ? (
+                                <p className="text-sm font-medium mt-0.5" style={{ color: isToday(date) ? "white" : "#3D1520" }}>
+                                  {lessons.length} {lessons.length === 1 ? "урок" : lessons.length < 5 ? "урока" : "уроков"}
+                                  {" · "}{lessons.map(l => l.subject).slice(0, 3).join(", ")}
+                                  {lessons.length > 3 ? "..." : ""}
+                                </p>
+                              ) : (
+                                <p className="text-sm mt-0.5" style={{ color: isToday(date) ? "rgba(255,255,255,0.5)" : "#C4B0B5" }}>нет уроков</p>
+                              )}
+                            </div>
+                            {lessons.length > 0 && (
+                              <Icon name={active ? "ChevronUp" : "ChevronDown"} size={16} style={{ color: isToday(date) ? "white" : "#9B6A7A", shrink: 0 }} />
                             )}
-                          </div>
-                          {lessons.length > 0 && (
-                            <Icon name={active ? "ChevronUp" : "ChevronDown"} size={16} style={{ color: isToday(date) ? "white" : "#9B6A7A", shrink: 0 }} />
+                          </button>
+                          {user.role === "teacher" && (
+                            <button
+                              onClick={() => { setEditing(null); setForm({ day_of_week: formatDay(date), time_slot: "09:00–09:40", subject: "", teacher_name: "", room: "", event_type: "trip", event_name: "", event_description: "", event_date: date }); setShowAdd(true); }}
+                              className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mr-3 transition-colors"
+                              style={{ background: isToday(date) ? "rgba(255,255,255,0.15)" : "#F5E0E5" }}>
+                              <Icon name="Plus" size={14} style={{ color: isToday(date) ? "white" : "#8B1A2F" }} />
+                            </button>
                           )}
-                        </button>
+                        </div>
 
                         {/* Expanded lessons */}
                         {active && lessons.length > 0 && (
