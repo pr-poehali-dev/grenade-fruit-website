@@ -269,7 +269,7 @@ export default function Index() {
     { id: "schedule" as Tab, label: "Расписание", emoji: "📅" },
     { id: "homework" as Tab, label: "ДЗ", emoji: "📚" },
     { id: "grades" as Tab, label: "Отметки", emoji: "⭐" },
-    { id: "attendance" as Tab, label: "Посещаемость", emoji: "🚸" },
+    { id: "attendance" as Tab, label: "Явка", emoji: "🚸" },
     { id: "files" as Tab, label: "Файлы", emoji: "📎" },
     { id: "recommendations" as Tab, label: "Советы", emoji: "💬" },
   ];
@@ -1844,7 +1844,7 @@ function AttendanceTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   return (
     <div>
-      <SectionTitle emoji="🚸" title={`Посещаемость · ${cls.display_name || cls.name}`} sub={user.role === "parent" ? user.child : undefined} />
+      <SectionTitle emoji="🚸" title={`Явка · ${cls.display_name || cls.name}`} sub={user.role === "parent" ? user.child : undefined} />
       {!loading && (lateCount > 0 || absentCount > 0) && (
         <div className="flex gap-2 mb-4 flex-wrap">
           {absentCount > 0 && (
