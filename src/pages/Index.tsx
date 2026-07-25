@@ -79,11 +79,11 @@ function AddBtn({ label, onClick }: { label: string; onClick?: () => void }) {
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.4)" }} onClick={onClose}>
-      <div className="w-full max-w-md rounded-3xl p-6 shadow-2xl animate-bounce-in" style={{ background: "white" }} onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between mb-5">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.4)" }} onClick={onClose}>
+      <div className="w-full max-w-md rounded-3xl p-6 shadow-2xl animate-bounce-in max-h-[90vh] overflow-y-auto" style={{ background: "white" }} onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-5 sticky top-0 -mt-6 -mx-6 px-6 pt-6 pb-3" style={{ background: "white" }}>
           <h3 className="text-2xl font-bold" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif" }}>{title}</h3>
-          <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100">
+          <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 shrink-0">
             <Icon name="X" size={16} style={{ color: "#9B6A7A" }} />
           </button>
         </div>
@@ -1160,14 +1160,14 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
       {/* ── MODAL: fill module schedule ── */}
       {showModuleForm && selectedModule && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setShowModuleForm(false)}>
-          <div className="w-full max-w-2xl rounded-3xl p-6 shadow-2xl my-4" style={{ background: "white" }} onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5">
+        <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 overflow-y-auto" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setShowModuleForm(false)}>
+          <div className="w-full max-w-2xl rounded-3xl p-6 shadow-2xl my-4 max-h-[90vh] overflow-y-auto" style={{ background: "white" }} onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5 sticky top-0 -mt-6 -mx-6 px-6 pt-6 pb-3 z-10" style={{ background: "white" }}>
               <div>
                 <h3 className="text-2xl font-bold" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif" }}>Расписание на {selectedModule.name}</h3>
                 <p className="text-sm mt-0.5" style={{ color: "#9B6A7A" }}>Заполните шаблон недели — он применится на все дни модуля</p>
               </div>
-              <button onClick={() => setShowModuleForm(false)} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100">
+              <button onClick={() => setShowModuleForm(false)} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 shrink-0">
                 <Icon name="X" size={16} style={{ color: "#9B6A7A" }} />
               </button>
             </div>
@@ -1217,12 +1217,12 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
       {/* ── MODAL: module editor ── */}
       {showModuleEditor && (
-        <div className="fixed inset-0 z-50 flex items-start justify-center p-4 overflow-y-auto" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setShowModuleEditor(false)}>
-          <div className="w-full max-w-lg rounded-3xl p-6 shadow-2xl my-4" style={{ background: "white" }} onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 z-[100] flex items-start justify-center p-4 overflow-y-auto" style={{ background: "rgba(0,0,0,0.5)" }} onClick={() => setShowModuleEditor(false)}>
+          <div className="w-full max-w-lg rounded-3xl p-6 shadow-2xl my-4 max-h-[90vh] overflow-y-auto" style={{ background: "white" }} onClick={e => e.stopPropagation()}>
             {/* Header */}
-            <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center justify-between mb-4 sticky top-0 -mt-6 -mx-6 px-6 pt-6 pb-3 z-10" style={{ background: "white" }}>
               <h3 className="text-2xl font-bold" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif" }}>Учебный год</h3>
-              <button onClick={() => setShowModuleEditor(false)} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100">
+              <button onClick={() => setShowModuleEditor(false)} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 shrink-0">
                 <Icon name="X" size={16} style={{ color: "#9B6A7A" }} />
               </button>
             </div>
