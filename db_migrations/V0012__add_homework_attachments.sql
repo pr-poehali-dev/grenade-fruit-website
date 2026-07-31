@@ -1,0 +1,1 @@
+ALTER TABLE homework ADD COLUMN IF NOT EXISTS attachments JSONB NOT NULL DEFAULT '[]'::jsonb;

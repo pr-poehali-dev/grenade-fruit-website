@@ -26,7 +26,8 @@ interface ScheduleDate { id: number; lesson_date: string; day_of_week: string; t
 interface Break { id: number; name: string; date_start: string; date_end: string; school_year: string; }
 interface Holiday { id: number; name: string; holiday_date: string; school_year: string; }
 interface Trip { id: number; class_id: number; name: string; description: string; trip_date: string; date_end: string; }
-interface Homework { id: number; subject: string; task: string; due_date: string; class_id: number; }
+interface Attachment { name: string; url: string; type: "file" | "link"; }
+interface Homework { id: number; subject: string; task: string; due_date: string; class_id: number; attachments?: Attachment[]; }
 interface Grade { id: number; student_id: number; subject: string; grade: number; comment: string; grade_date: string; student_name: string; }
 interface Attendance { id: number; student_id: number; subject: string; status: "absent" | "late"; comment: string; lesson_date: string; student_name: string; }
 interface FileItem { id: number; name: string; subject: string; teacher_name: string; upload_date: string; size_label: string; s3_key: string; }
@@ -1497,12 +1498,24 @@ function StudentsTab({ cls }: { cls: SchoolClass }) {
 }
 
 // ─── Homework Tab ──────────────────────────────────────────
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
 function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [items, setItems] = useState<Homework[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Homework | null>(null);
   const [form, setForm] = useState({ subject: "", task: "", due_date: "" });
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [linkInput, setLinkInput] = useState("");
+  const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -1514,23 +1527,46 @@ function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const openAdd = () => { setEditing(null); setForm({ subject: "", task: "", due_date: "" }); setShowAdd(true); };
-  const openEdit = (hw: Homework) => { setEditing(hw); setForm({ subject: hw.subject, task: hw.task, due_date: hw.due_date }); setShowAdd(true); };
+  const openAdd = () => { setEditing(null); setForm({ subject: "", task: "", due_date: "" }); setAttachments([]); setLinkInput(""); setShowAdd(true); };
+  const openEdit = (hw: Homework) => { setEditing(hw); setForm({ subject: hw.subject, task: hw.task, due_date: hw.due_date }); setAttachments(hw.attachments || []); setLinkInput(""); setShowAdd(true); };
+
+  const handleFilePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setUploading(true);
+    for (const file of Array.from(files)) {
+      const dataUrl = await fileToBase64(file);
+      const res = await api("upload_attachment", "POST", { file_name: file.name, file_data: dataUrl, content_type: file.type });
+      if (res && res.url) setAttachments(a => [...a, { name: res.name, url: res.url, type: "file" }]);
+    }
+    setUploading(false);
+    e.target.value = "";
+  };
+
+  const addLink = () => {
+    const url = linkInput.trim();
+    if (!url) return;
+    const name = url.replace(/^https?:\/\//, "").slice(0, 40);
+    setAttachments(a => [...a, { name, url: url.startsWith("http") ? url : `https://${url}`, type: "link" }]);
+    setLinkInput("");
+  };
+
+  const removeAttachment = (idx: number) => setAttachments(a => a.filter((_, i) => i !== idx));
 
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     if (editing) {
-      await api("update_homework", "POST", { ...form, id: editing.id });
+      await api("update_homework", "POST", { ...form, id: editing.id, attachments });
     } else {
-      await api("add_homework", "POST", { ...form, class_id: cls.id, teacher_id: user.id });
+      await api("add_homework", "POST", { ...form, class_id: cls.id, teacher_id: user.id, attachments });
     }
     setSaving(false); setShowAdd(false); load();
   };
 
   return (
     <div>
-      <SectionTitle emoji="📚" title={`Домашние задания · ${cls.display_name || cls.name}`} sub={`${items.length} заданий`} />
+      <SectionTitle emoji="📚" title={`Домашние задания · ${cls.display_name || cls.name}`} sub={`${items.length} заданий · для всего класса`} />
       {loading ? <Loader /> : (
         <div className="space-y-3">
           {items.length === 0 && <Empty text="Заданий нет" />}
@@ -1544,6 +1580,18 @@ function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
                     <span className="text-xs" style={{ color: "#9B6A7A" }}>до {hw.due_date}</span>
                   </div>
                   <p className="text-sm leading-relaxed" style={{ color: "#3D1520" }}>{hw.task}</p>
+                  {hw.attachments && hw.attachments.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {hw.attachments.map((a, ai) => (
+                        <a key={ai} href={a.url} target="_blank" rel="noreferrer"
+                          className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg font-medium transition-colors hover:opacity-80"
+                          style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>
+                          <Icon name={a.type === "link" ? "Link" : "Paperclip"} size={12} />
+                          {a.name}
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 {user.role === "teacher" && (
                   <button onClick={() => openEdit(hw)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 shrink-0">
@@ -1558,11 +1606,46 @@ function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
       {user.role === "teacher" && <AddBtn label="Добавить задание" onClick={openAdd} />}
 
       {showAdd && (
-        <Modal title={editing ? "Редактировать ДЗ" : "Новое задание"} onClose={() => setShowAdd(false)}>
+        <Modal title={editing ? "Редактировать ДЗ" : "Новое задание · весь класс"} onClose={() => setShowAdd(false)}>
           <form onSubmit={save} className="space-y-3">
             <Field label="Предмет"><Input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="Математика" required /></Field>
             <Field label="Задание"><Textarea rows={4} value={form.task} onChange={e => setForm(f => ({ ...f, task: e.target.value }))} placeholder="Опишите задание..." required /></Field>
             <Field label="Срок сдачи"><Input value={form.due_date} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))} placeholder="14 мая" required /></Field>
+
+            <Field label="Файлы">
+              <label className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium cursor-pointer transition-colors"
+                style={{ background: "#F5E0E5", color: "#8B1A2F", border: "1.5px dashed rgba(139,26,47,0.3)" }}>
+                <Icon name={uploading ? "Loader2" : "Upload"} size={15} className={uploading ? "animate-spin" : ""} />
+                {uploading ? "Загрузка..." : "Прикрепить файл"}
+                <input type="file" multiple className="hidden" onChange={handleFilePick} disabled={uploading} />
+              </label>
+            </Field>
+
+            <Field label="Ссылка">
+              <div className="flex gap-2">
+                <Input value={linkInput} onChange={e => setLinkInput(e.target.value)} placeholder="https://..." />
+                <button type="button" onClick={addLink}
+                  className="px-3 rounded-xl text-sm font-medium shrink-0" style={{ background: "#8B1A2F", color: "white" }}>
+                  <Icon name="Plus" size={15} />
+                </button>
+              </div>
+            </Field>
+
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {attachments.map((a, i) => (
+                  <span key={i} className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-lg font-medium"
+                    style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>
+                    <Icon name={a.type === "link" ? "Link" : "Paperclip"} size={12} />
+                    {a.name}
+                    <button type="button" onClick={() => removeAttachment(i)}>
+                      <Icon name="X" size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+
             <SaveBtn loading={saving} />
           </form>
         </Modal>

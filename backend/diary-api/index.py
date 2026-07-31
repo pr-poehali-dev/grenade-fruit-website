@@ -4,10 +4,15 @@
 """
 import os
 import json
+import base64
+import uuid
 import psycopg2
+import boto3
 from psycopg2.extras import RealDictCursor
 
 SCHEMA = os.environ.get("MAIN_DB_SCHEMA", "public")
+S3_BUCKET = "files"
+S3_ENDPOINT = "https://bucket.poehali.dev"
 CORS = {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
@@ -114,6 +119,8 @@ def handler(event: dict, context) -> dict:
         return handle_add_homework(body)
     if action == "update_homework":
         return handle_update_homework(body.get("id"), body)
+    if action == "upload_attachment":
+        return handle_upload_attachment(body)
     if action == "get_grades":
         return handle_get_grades(params)
     if action == "add_grade":
@@ -762,10 +769,11 @@ def handle_get_homework(params):
 def handle_add_homework(body):
     conn = get_conn()
     cur = conn.cursor()
+    attachments = body.get("attachments") or []
     cur.execute(
-        f"INSERT INTO {SCHEMA}.homework (subject, task, due_date, teacher_id, class_id) VALUES (%s, %s, %s, %s, %s) RETURNING *",
+        f"INSERT INTO {SCHEMA}.homework (subject, task, due_date, teacher_id, class_id, attachments) VALUES (%s, %s, %s, %s, %s, %s) RETURNING *",
         (body.get("subject"), body.get("task"), body.get("due_date"),
-         body.get("teacher_id"), body.get("class_id"))
+         body.get("teacher_id"), body.get("class_id"), json.dumps(attachments, ensure_ascii=False))
     )
     row = cur.fetchone()
     if body.get("class_id"):
@@ -787,9 +795,10 @@ def handle_add_homework(body):
 def handle_update_homework(hw_id, body):
     conn = get_conn()
     cur = conn.cursor()
+    attachments = body.get("attachments") or []
     cur.execute(
-        f"UPDATE {SCHEMA}.homework SET subject = %s, task = %s, due_date = %s WHERE id = %s RETURNING *",
-        (body.get("subject"), body.get("task"), body.get("due_date"), hw_id)
+        f"UPDATE {SCHEMA}.homework SET subject = %s, task = %s, due_date = %s, attachments = %s WHERE id = %s RETURNING *",
+        (body.get("subject"), body.get("task"), body.get("due_date"), json.dumps(attachments, ensure_ascii=False), hw_id)
     )
     row = cur.fetchone()
     conn.commit()
@@ -797,6 +806,28 @@ def handle_update_homework(hw_id, body):
     if not row:
         return err("Не найдено", 404)
     return ok(dict(row))
+
+
+def handle_upload_attachment(body):
+    """Загрузка файла-вложения к ДЗ в S3, возвращает публичную ссылку."""
+    file_name = body.get("file_name") or "file"
+    file_data = body.get("file_data") or ""
+    content_type = body.get("content_type") or "application/octet-stream"
+    if not file_data:
+        return err("Нет данных файла")
+    try:
+        raw = base64.b64decode(file_data.split(",")[-1])
+    except Exception:
+        return err("Некорректные данные файла")
+    key = f"homework/{uuid.uuid4().hex}_{file_name}"
+    s3 = boto3.client(
+        "s3", endpoint_url=S3_ENDPOINT,
+        aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
+        aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
+    )
+    s3.put_object(Bucket=S3_BUCKET, Key=key, Body=raw, ContentType=content_type)
+    cdn_url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
+    return ok({"name": file_name, "url": cdn_url, "type": "file"}, 201)
 
 
 # ── Grades ────────────────────────────────────────────────

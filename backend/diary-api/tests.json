@@ -41,6 +41,15 @@
       "expectedStatus": 200,
       "expectedBody": {"full_name": "Алёша Петров"},
       "bodyMatcher": "array_contains"
+    },
+    {
+      "name": "Upload attachment missing data",
+      "method": "POST",
+      "path": "/?action=upload_attachment",
+      "body": {"file_name": "test.txt"},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "Нет данных файла"},
+      "bodyMatcher": "partial"
     }
   ]
 }
