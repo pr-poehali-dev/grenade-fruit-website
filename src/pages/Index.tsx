@@ -930,7 +930,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                                   <p className="font-semibold text-sm truncate" style={{ color: "#3D1520" }}>{lesson.subject}</p>
                                   <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{lesson.teacher_name}</p>
                                 </div>
-                                {lesson.time_slot === "12:50–13:30" && (
+                                {lesson.time_slot === "13:40–14:20" && (
                                   <span className="text-xs px-2 py-1 rounded-lg shrink-0" style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>🚪 {lesson.room}</span>
                                 )}
                                 {user.role === "teacher" && isFromTemplate && (
@@ -1087,7 +1087,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                                   <p className="text-sm font-semibold" style={{ color: "#3D1520" }}>{l.subject}</p>
                                   <p className="text-xs" style={{ color: "#9B6A7A" }}>{l.teacher_name}</p>
                                 </div>
-                                {l.time_slot === "12:50–13:30" && (
+                                {l.time_slot === "13:40–14:20" && (
                                   <span className="text-xs px-2 py-0.5 rounded-lg shrink-0" style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>🚪 {l.room}</span>
                                 )}
                               </div>
