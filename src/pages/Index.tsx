@@ -124,7 +124,7 @@ function SaveBtn({ label = "Сохранить", loading }: { label?: string; lo
 }
 
 const DAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница"];
-const TEACHERS = ["Елена Сергеевна", "Александр Валерьевич", "Лариса Ивановна", "Олеся Александровна", "Ирина Олеговна", "Любовь Александровна", "Вадим Игоревич"];
+const TEACHERS = ["Елена Сергеевна", "Александр Валерьевич", "Лариса Ивановна", "Олеся Александровна", "Ирина Олеговна", "Любовь Александровна", "Вадим Игоревич", "Артем Сергеевич"];
 const NOTIF_EMOJI: Record<string, string> = { grade: "⭐", homework: "📚", recommendation: "💬", file: "📎", attendance: "🚸" };
 
 const SUBJECTS_BY_GRADE: Record<string, string[]> = {
