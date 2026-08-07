@@ -598,8 +598,17 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
     setShowAdd(true);
   };
 
+  // Уроки можно добавлять только начиная со 2 сентября (после летних каникул)
+  const NEW_SCHOOL_YEAR_START = "2026-09-02";
+  const isLessonDateAllowed = (dateIso: string) => !dateIso || (dateIso >= NEW_SCHOOL_YEAR_START && !breakDates.has(dateIso));
+
   const saveItem = async (e: React.FormEvent) => {
-    e.preventDefault(); setSavingItem(true);
+    e.preventDefault();
+    if (form.event_type === "lesson" && !editing && !isLessonDateAllowed(form.event_date)) {
+      alert("Уроки можно добавлять только начиная со 2 сентября — с 31 мая по 1 сентября летние каникулы");
+      return;
+    }
+    setSavingItem(true);
     if (form.event_type === "trip") {
       await api("add_trip", "POST", { name: form.event_name, description: form.event_description, trip_date: form.event_date, date_end: form.event_date, class_id: cls.id });
       loadBreaksHolidays();
@@ -1110,14 +1119,20 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
           <form onSubmit={saveItem} className="space-y-3">
             {!editing && (
               <div className="grid grid-cols-3 gap-1 p-1 rounded-xl" style={{ background: "#F5E0E5" }}>
-                {[{ val: "lesson", label: "📚 Урок" }, { val: "trip", label: "🚌 Выезд" }, { val: "holiday", label: "🎉 Праздник" }].map(({ val, label }) => (
-                  <button key={val} type="button" onClick={() => setForm(f => ({ ...f, event_type: val }))}
-                    className="py-1.5 text-xs font-semibold rounded-lg transition-colors"
+                {[{ val: "lesson", label: "📚 Урок", disabled: !isLessonDateAllowed(form.event_date) }, { val: "trip", label: "🚌 Выезд", disabled: false }, { val: "holiday", label: "🎉 Праздник", disabled: false }].map(({ val, label, disabled }) => (
+                  <button key={val} type="button" disabled={disabled} onClick={() => setForm(f => ({ ...f, event_type: val }))}
+                    className="py-1.5 text-xs font-semibold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     style={{ background: form.event_type === val ? "#8B1A2F" : "transparent", color: form.event_type === val ? "white" : "#8B1A2F" }}>
                     {label}
                   </button>
                 ))}
               </div>
+            )}
+
+            {form.event_type === "lesson" && !isLessonDateAllowed(form.event_date) && (
+              <p className="text-xs px-3 py-2 rounded-xl" style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>
+                🏖 Уроки можно добавлять только со 2 сентября — с 31 мая по 1 сентября летние каникулы
+              </p>
             )}
 
             {form.event_type === "lesson" && (<>
