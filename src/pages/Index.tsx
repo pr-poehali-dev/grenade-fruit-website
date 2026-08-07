@@ -681,6 +681,30 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
     await Promise.all([loadDates(selectedModule.id), loadWeekDates()]);
   };
 
+  // Открываем форму заполнения модуля, подставляя уже выставленное расписание
+  const openModuleForm = () => {
+    if (schedDates.length > 0) {
+      const byDay: Record<string, LessonSlot[]> = {};
+      DAYS.forEach(d => {
+        const datesForDay = Array.from(new Set(schedDates.filter(s => s.day_of_week === d).map(s => s.lesson_date))).sort();
+        if (datesForDay.length > 0) {
+          const lessons = schedDates
+            .filter(s => s.day_of_week === d && s.lesson_date === datesForDay[0])
+            .sort((a, b) => a.sort_order - b.sort_order);
+          byDay[d] = lessons.length > 0
+            ? lessons.map(l => ({ time_slot: l.time_slot, subject: l.subject, teacher_name: l.teacher_name, room: l.room }))
+            : [emptySlot()];
+        } else {
+          byDay[d] = [emptySlot()];
+        }
+      });
+      setWeeklyTemplate(byDay);
+    } else {
+      setWeeklyTemplate(Object.fromEntries(DAYS.map(d => [d, [emptySlot()]])));
+    }
+    setShowModuleForm(true);
+  };
+
   const addSlot = (d: string) => setWeeklyTemplate(t => ({ ...t, [d]: [...t[d], emptySlot()] }));
   const removeSlot = (d: string, i: number) => setWeeklyTemplate(t => ({ ...t, [d]: t[d].filter((_, idx) => idx !== i) }));
   const updateSlot = (d: string, i: number, field: keyof LessonSlot, val: string) =>
@@ -994,10 +1018,10 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                   {formatDate(selectedModule.date_start)} — {formatDate(selectedModule.date_end)} · {selectedModule.school_year}
                 </p>
                 {user.role === "teacher" && (
-                  <button onClick={() => setShowModuleForm(true)}
+                  <button onClick={openModuleForm}
                     className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all hover:opacity-80"
                     style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)", color: "white" }}>
-                    <Icon name="CalendarPlus" size={13} /> Заполнить модуль
+                    <Icon name="CalendarPlus" size={13} /> {schedDates.length > 0 ? "Изменить расписание" : "Заполнить модуль"}
                   </button>
                 )}
               </div>
