@@ -349,20 +349,32 @@ def handle_get_schedule(params):
     return ok(list(rows))
 
 
+def resort_schedule_day(cur, class_id, day_of_week):
+    """Пересчитывает sort_order уроков дня по времени начала (time_slot), чтобы список всегда шёл по хронологии."""
+    cur.execute(
+        f"SELECT id, time_slot FROM {SCHEMA}.schedule WHERE class_id = %s AND day_of_week = %s AND active = true",
+        (class_id, day_of_week)
+    )
+    rows = cur.fetchall()
+    rows_sorted = sorted(rows, key=lambda r: r["time_slot"] or "")
+    for i, r in enumerate(rows_sorted):
+        cur.execute(f"UPDATE {SCHEMA}.schedule SET sort_order = %s WHERE id = %s", (i, r["id"]))
+
+
 def handle_add_schedule(body):
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(
-        f"SELECT COALESCE(MAX(sort_order), 0) + 1 as next FROM {SCHEMA}.schedule WHERE class_id = %s AND day_of_week = %s",
-        (body.get("class_id"), body.get("day_of_week"))
-    )
-    next_order = cur.fetchone()["next"]
+    class_id = body.get("class_id")
+    day_of_week = body.get("day_of_week")
     cur.execute(
         f"""INSERT INTO {SCHEMA}.schedule (day_of_week, time_slot, subject, teacher_name, room, class_id, sort_order)
-            VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *""",
-        (body.get("day_of_week"), body.get("time_slot"), body.get("subject"),
-         body.get("teacher_name"), body.get("room"), body.get("class_id"), next_order)
+            VALUES (%s, %s, %s, %s, %s, %s, 0) RETURNING id""",
+        (day_of_week, body.get("time_slot"), body.get("subject"),
+         body.get("teacher_name"), body.get("room"), class_id)
     )
+    new_id = cur.fetchone()["id"]
+    resort_schedule_day(cur, class_id, day_of_week)
+    cur.execute(f"SELECT * FROM {SCHEMA}.schedule WHERE id = %s", (new_id,))
     row = cur.fetchone()
     conn.commit()
     conn.close()
@@ -372,18 +384,23 @@ def handle_add_schedule(body):
 def handle_update_schedule(item_id, body):
     conn = get_conn()
     cur = conn.cursor()
+    day_of_week = body.get("day_of_week")
     cur.execute(
         f"""UPDATE {SCHEMA}.schedule SET
             day_of_week = %s, time_slot = %s, subject = %s, teacher_name = %s, room = %s
-            WHERE id = %s RETURNING *""",
-        (body.get("day_of_week"), body.get("time_slot"), body.get("subject"),
+            WHERE id = %s RETURNING *, class_id""",
+        (day_of_week, body.get("time_slot"), body.get("subject"),
          body.get("teacher_name"), body.get("room"), item_id)
     )
     row = cur.fetchone()
+    if not row:
+        conn.close()
+        return err("Не найдено", 404)
+    resort_schedule_day(cur, row["class_id"], day_of_week)
+    cur.execute(f"SELECT * FROM {SCHEMA}.schedule WHERE id = %s", (item_id,))
+    row = cur.fetchone()
     conn.commit()
     conn.close()
-    if not row:
-        return err("Не найдено", 404)
     return ok(dict(row))
 
 
@@ -731,7 +748,7 @@ def handle_save_module_schedule(body):
                 day_name = name
                 break
         if day_name and day_name in weekly:
-            lessons = weekly[day_name]
+            lessons = sorted(weekly[day_name], key=lambda l: l.get("time_slot") or "")
             for idx, lesson in enumerate(lessons):
                 cur.execute(
                     f"""INSERT INTO {SCHEMA}.schedule_dates
