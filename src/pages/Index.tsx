@@ -15,7 +15,7 @@ async function api(action: string, method = "GET", body?: object) {
 
 // ─── Types ────────────────────────────────────────────────
 type Role = "teacher" | "parent";
-type Tab = "classes" | "parents" | "schedule" | "homework" | "grades" | "attendance" | "files" | "recommendations";
+type Tab = "classes" | "parents" | "schedule" | "homework" | "grades" | "attendance" | "recommendations";
 
 interface User { id: number; login: string; role: Role; display_name: string; child?: string; child_id?: number; class_id?: number; }
 interface SchoolClass { id: number; name: string; grade: number; letter: string; display_name?: string; }
@@ -30,7 +30,6 @@ interface Attachment { name: string; url: string; type: "file" | "link"; }
 interface Homework { id: number; subject: string; task: string; due_date: string; class_id: number; attachments?: Attachment[]; }
 interface Grade { id: number; student_id: number; subject: string; grade: number; comment: string; grade_date: string; student_name: string; }
 interface Attendance { id: number; student_id: number; subject: string; status: "absent" | "late"; comment: string; lesson_date: string; student_name: string; }
-interface FileItem { id: number; name: string; subject: string; teacher_name: string; upload_date: string; size_label: string; s3_key: string; }
 interface Recommendation { id: number; subject: string; text: string; rec_date: string; student_name: string; teacher_name: string; }
 interface Notification { id: number; text: string; type: string; is_read: boolean; created_at: string; }
 
@@ -273,7 +272,6 @@ export default function Index() {
     { id: "homework" as Tab, label: "ДЗ", emoji: "📚" },
     { id: "grades" as Tab, label: "Отметки", emoji: "⭐" },
     { id: "attendance" as Tab, label: "Явка", emoji: "🚸" },
-    { id: "files" as Tab, label: "Файлы", emoji: "📎" },
     { id: "recommendations" as Tab, label: "Советы", emoji: "💬" },
   ];
 
@@ -452,7 +450,6 @@ export default function Index() {
                 {tab === "homework" && <HomeworkTab cls={selectedClass} user={user} />}
                 {tab === "grades" && <GradesTab cls={selectedClass} user={user} />}
                 {tab === "attendance" && <AttendanceTab cls={selectedClass} user={user} />}
-                {tab === "files" && <FilesTab cls={selectedClass} />}
                 {tab === "recommendations" && <RecsTab cls={selectedClass} user={user} />}
                 {tab === "classes" && user.role === "teacher" && <StudentsTab cls={selectedClass} />}
                 {tab === "parents" && user.role === "teacher" && <ParentsTab cls={selectedClass} />}
@@ -1543,15 +1540,6 @@ function StudentsTab({ cls }: { cls: SchoolClass }) {
 }
 
 // ─── Homework Tab ──────────────────────────────────────────
-function fileToBase64(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
-}
-
 function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [items, setItems] = useState<Homework[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1560,7 +1548,6 @@ function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [form, setForm] = useState({ subject: "", task: "", due_date: "" });
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [linkInput, setLinkInput] = useState("");
-  const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -1574,19 +1561,6 @@ function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   const openAdd = () => { setEditing(null); setForm({ subject: "", task: "", due_date: "" }); setAttachments([]); setLinkInput(""); setShowAdd(true); };
   const openEdit = (hw: Homework) => { setEditing(hw); setForm({ subject: hw.subject, task: hw.task, due_date: hw.due_date }); setAttachments(hw.attachments || []); setLinkInput(""); setShowAdd(true); };
-
-  const handleFilePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    setUploading(true);
-    for (const file of Array.from(files)) {
-      const dataUrl = await fileToBase64(file);
-      const res = await api("upload_attachment", "POST", { file_name: file.name, file_data: dataUrl, content_type: file.type });
-      if (res && res.url) setAttachments(a => [...a, { name: res.name, url: res.url, type: "file" }]);
-    }
-    setUploading(false);
-    e.target.value = "";
-  };
 
   const addLink = () => {
     const url = linkInput.trim();
@@ -1656,15 +1630,6 @@ function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
             <Field label="Предмет"><Input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="Математика" required /></Field>
             <Field label="Задание"><Textarea rows={4} value={form.task} onChange={e => setForm(f => ({ ...f, task: e.target.value }))} placeholder="Опишите задание..." required /></Field>
             <Field label="Срок сдачи"><Input value={form.due_date} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))} placeholder="14 мая" required /></Field>
-
-            <Field label="Файлы">
-              <label className="flex items-center justify-center gap-2 px-3 py-2.5 rounded-xl text-sm font-medium cursor-pointer transition-colors"
-                style={{ background: "#F5E0E5", color: "#8B1A2F", border: "1.5px dashed rgba(139,26,47,0.3)" }}>
-                <Icon name={uploading ? "Loader2" : "Upload"} size={15} className={uploading ? "animate-spin" : ""} />
-                {uploading ? "Загрузка..." : "Прикрепить файл"}
-                <input type="file" multiple className="hidden" onChange={handleFilePick} disabled={uploading} />
-              </label>
-            </Field>
 
             <Field label="Ссылка">
               <div className="flex gap-2">
@@ -2089,47 +2054,6 @@ function AttendanceTab({ cls, user }: { cls: SchoolClass; user: User }) {
             )}
           </div>
         </Modal>
-      )}
-    </div>
-  );
-}
-
-// ─── Files Tab ─────────────────────────────────────────────
-function FilesTab({ cls }: { cls: SchoolClass }) {
-  const [files, setFiles] = useState<FileItem[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    api(`get_files&class_id=${cls.id}`).then(data => {
-      if (Array.isArray(data)) setFiles(data);
-      setLoading(false);
-    });
-  }, [cls.id]);
-
-  return (
-    <div>
-      <SectionTitle emoji="📎" title={`Файлы · ${cls.display_name || cls.name}`} sub={`${files.length} материалов`} />
-      {loading ? <Loader /> : (
-        <div className="space-y-3">
-          {files.length === 0 && <Empty text="Файлы не загружены" />}
-          {files.map((f, i) => (
-            <div key={f.id} className="flex items-center gap-3 p-4 rounded-2xl card-hover animate-slide-up"
-              style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.07}s`, opacity: 0 }}>
-              <div className="w-11 h-11 rounded-xl flex items-center justify-center text-2xl shrink-0" style={{ background: "#F5E0E5" }}>
-                {f.name?.endsWith(".pdf") ? "📄" : f.name?.endsWith(".pptx") ? "📊" : "📝"}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm truncate" style={{ color: "#3D1520" }}>{f.name}</p>
-                <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{f.teacher_name} · {f.upload_date} · {f.size_label}</p>
-                <span className="text-xs px-2 py-0.5 rounded-full inline-block mt-1" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{f.subject}</span>
-              </div>
-              <button className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 hover:scale-110 transition-all"
-                style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)" }}>
-                <Icon name="Download" size={15} style={{ color: "white" }} />
-              </button>
-            </div>
-          ))}
-        </div>
       )}
     </div>
   );

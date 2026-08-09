@@ -119,8 +119,6 @@ def handler(event: dict, context) -> dict:
         return handle_add_homework(body)
     if action == "update_homework":
         return handle_update_homework(body.get("id"), body)
-    if action == "upload_attachment":
-        return handle_upload_attachment(body)
     if action == "get_grades":
         return handle_get_grades(params)
     if action == "add_grade":
@@ -133,8 +131,6 @@ def handler(event: dict, context) -> dict:
         return handle_update_attendance(body)
     if action == "delete_attendance":
         return handle_delete_attendance(body)
-    if action == "get_files":
-        return handle_get_files(params)
     if action == "get_recommendations":
         return handle_get_recommendations(params)
     if action == "add_recommendation":
@@ -825,28 +821,6 @@ def handle_update_homework(hw_id, body):
     return ok(dict(row))
 
 
-def handle_upload_attachment(body):
-    """Загрузка файла-вложения к ДЗ в S3, возвращает публичную ссылку."""
-    file_name = body.get("file_name") or "file"
-    file_data = body.get("file_data") or ""
-    content_type = body.get("content_type") or "application/octet-stream"
-    if not file_data:
-        return err("Нет данных файла")
-    try:
-        raw = base64.b64decode(file_data.split(",")[-1])
-    except Exception:
-        return err("Некорректные данные файла")
-    key = f"homework/{uuid.uuid4().hex}_{file_name}"
-    s3 = boto3.client(
-        "s3", endpoint_url=S3_ENDPOINT,
-        aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
-        aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
-    )
-    s3.put_object(Bucket=S3_BUCKET, Key=key, Body=raw, ContentType=content_type)
-    cdn_url = f"https://cdn.poehali.dev/projects/{os.environ['AWS_ACCESS_KEY_ID']}/bucket/{key}"
-    return ok({"name": file_name, "url": cdn_url, "type": "file"}, 201)
-
-
 # ── Grades ────────────────────────────────────────────────
 def handle_get_grades(params):
     student_id = params.get("student_id")
@@ -982,28 +956,6 @@ def handle_delete_attendance(body):
     conn.commit()
     conn.close()
     return ok({"ok": True})
-
-
-# ── Files ─────────────────────────────────────────────────
-def handle_get_files(params):
-    class_id = params.get("class_id")
-    conn = get_conn()
-    cur = conn.cursor()
-    if class_id:
-        cur.execute(
-            f"""SELECT f.*, u.display_name as teacher_name FROM {SCHEMA}.files f
-                LEFT JOIN {SCHEMA}.users u ON u.id = f.teacher_id
-                WHERE f.class_id = %s ORDER BY f.created_at DESC""",
-            (class_id,)
-        )
-    else:
-        cur.execute(
-            f"""SELECT f.*, u.display_name as teacher_name FROM {SCHEMA}.files f
-                LEFT JOIN {SCHEMA}.users u ON u.id = f.teacher_id ORDER BY f.created_at DESC"""
-        )
-    rows = cur.fetchall()
-    conn.close()
-    return ok(list(rows))
 
 
 # ── Recommendations ───────────────────────────────────────
