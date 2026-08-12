@@ -41,6 +41,15 @@
       "expectedStatus": 200,
       "expectedBody": {"full_name": "Алёша Петров"},
       "bodyMatcher": "array_contains"
+    },
+    {
+      "name": "Update email missing user_id",
+      "method": "POST",
+      "path": "/?action=update_email",
+      "body": {"email": "test@example.com"},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "user_id required"},
+      "bodyMatcher": "partial"
     }
   ]
 }

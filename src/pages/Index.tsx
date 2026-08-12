@@ -17,7 +17,7 @@ async function api(action: string, method = "GET", body?: object) {
 type Role = "teacher" | "parent";
 type Tab = "classes" | "parents" | "schedule" | "homework" | "grades" | "attendance" | "recommendations";
 
-interface User { id: number; login: string; role: Role; display_name: string; child?: string; child_id?: number; class_id?: number; }
+interface User { id: number; login: string; role: Role; display_name: string; child?: string; child_id?: number; class_id?: number; email?: string; }
 interface SchoolClass { id: number; name: string; grade: number; letter: string; display_name?: string; }
 interface Student { id: number; full_name: string; class_id: number; class_name?: string; }
 interface ScheduleItem { id: number; day_of_week: string; time_slot: string; subject: string; teacher_name: string; room: string; class_id: number; sort_order: number; }
@@ -142,6 +142,42 @@ function getSubjectsByGrade(grade: number): string[] {
   return SUBJECTS_BY_GRADE["7"];
 }
 
+// ─── Profile (email) ────────────────────────────────────────
+function ProfileModal({ user, onClose, onSaved }: { user: User; onClose: () => void; onSaved: (email: string) => void }) {
+  const [email, setEmail] = useState(user.email || "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(""); setSaving(true);
+    const res = await api("update_email", "POST", { user_id: user.id, email });
+    setSaving(false);
+    if (res.error) { setError(res.error); return; }
+    onSaved(res.email || "");
+  };
+
+  return (
+    <Modal title="Email для уведомлений" onClose={onClose}>
+      <form onSubmit={save} className="space-y-3">
+        <p className="text-xs" style={{ color: "#9B6A7A" }}>
+          Раз в день на почту будет приходить сводка новых оценок и домашних заданий вашего ребёнка.
+        </p>
+        <Field label="Email">
+          <Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" />
+        </Field>
+        {error && (
+          <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: "rgba(244,67,54,0.06)", border: "1px solid rgba(244,67,54,0.2)" }}>
+            <Icon name="AlertCircle" size={14} className="text-red-500 shrink-0" />
+            <span className="text-xs text-red-600">{error}</span>
+          </div>
+        )}
+        <SaveBtn loading={saving} />
+      </form>
+    </Modal>
+  );
+}
+
 // ─── Login ────────────────────────────────────────────────
 function LoginScreen({ onLogin }: { onLogin: (u: User) => void }) {
   const [tab, setTab] = useState<Role>("parent");
@@ -226,6 +262,7 @@ export default function Index() {
   const [tabKey, setTabKey] = useState(0);
   const [showNotifs, setShowNotifs] = useState(false);
   const [showClassPicker, setShowClassPicker] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
 
   const unread = notifs.filter(n => !n.is_read).length;
@@ -236,6 +273,16 @@ export default function Index() {
         if (Array.isArray(data)) setClasses(data);
       });
     }
+  }, [user]);
+
+  // Раз в сутки — сводка по email родителям с новыми оценками/ДЗ
+  useEffect(() => {
+    if (!user) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const key = "digest_triggered_" + today;
+    if (localStorage.getItem(key)) return;
+    localStorage.setItem(key, "1");
+    api("run_daily_digest", "POST", {});
   }, [user]);
 
   useEffect(() => {
@@ -347,12 +394,23 @@ export default function Index() {
                 )}
               </div>
             )}
+            {user.role === "parent" && (
+              <button onClick={() => setShowProfile(true)} className="relative w-9 h-9 rounded-full flex items-center justify-center" title="Email для уведомлений">
+                <Icon name="Mail" size={17} style={{ color: user.email ? "#8B1A2F" : "#C4909F" }} />
+                {!user.email && <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full" style={{ background: "#D4A843" }} />}
+              </button>
+            )}
             <button onClick={logout} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
               <Icon name="LogOut" size={13} /> Выйти
             </button>
           </div>
         </div>
       </header>
+
+      {showProfile && (
+        <ProfileModal user={user} onClose={() => setShowProfile(false)}
+          onSaved={(email) => { const u = { ...user, email }; localStorage.setItem("school_user", JSON.stringify(u)); setUser(u); setShowProfile(false); }} />
+      )}
 
       <div className="max-w-6xl mx-auto px-4 py-5 flex gap-5">
         {/* Left sidebar: class picker */}

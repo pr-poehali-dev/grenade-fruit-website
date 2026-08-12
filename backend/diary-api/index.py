@@ -139,6 +139,10 @@ def handler(event: dict, context) -> dict:
         return handle_get_notifications(params)
     if action == "mark_read":
         return handle_mark_read(body)
+    if action == "update_email":
+        return handle_update_email(body)
+    if action == "run_daily_digest":
+        return handle_run_daily_digest()
 
     # Healthcheck
     if method == "GET" and not action:
@@ -175,7 +179,7 @@ def handle_login(body):
                    "display_name": user["display_name"], "child": None, "child_id": None, "class_id": None})
 
     cur.execute(
-        f"""SELECT u.id, u.login, u.display_name, u.role,
+        f"""SELECT u.id, u.login, u.display_name, u.role, u.email,
                s.full_name as child, s.id as child_id, s.class_id
            FROM {SCHEMA}.users u
            JOIN {SCHEMA}.parent_students ps ON ps.parent_id = u.id
@@ -189,7 +193,7 @@ def handle_login(body):
         return err("Неверный логин или пароль", 401)
     return ok({"id": user["id"], "login": user["login"], "role": user["role"],
                "display_name": user["display_name"], "child": user["child"],
-               "child_id": user["child_id"], "class_id": user["class_id"]})
+               "child_id": user["child_id"], "class_id": user["class_id"], "email": user["email"]})
 
 
 # ── Classes ───────────────────────────────────────────────
@@ -1042,3 +1046,98 @@ def handle_mark_read(body):
     conn.commit()
     conn.close()
     return ok({"ok": True})
+
+
+# ── Email ─────────────────────────────────────────────────
+def handle_update_email(body):
+    """Родитель сам сохраняет/меняет свой email в профиле."""
+    user_id = body.get("user_id")
+    email = (body.get("email") or "").strip()
+    if not user_id:
+        return err("user_id required")
+    if email and "@" not in email:
+        return err("Некорректный email")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"UPDATE {SCHEMA}.users SET email = %s WHERE id = %s AND role = 'parent' RETURNING id, email",
+        (email or None, user_id)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return err("Не найдено", 404)
+    return ok(dict(row))
+
+
+def send_email(to_email, subject, text_body):
+    import smtplib
+    from email.mime.text import MIMEText
+    host = os.environ["SMTP_HOST"]
+    port = int(os.environ.get("SMTP_PORT", "465"))
+    login_ = os.environ["SMTP_LOGIN"]
+    password = os.environ["SMTP_PASSWORD"]
+    msg = MIMEText(text_body, "plain", "utf-8")
+    msg["Subject"] = subject
+    msg["From"] = login_
+    msg["To"] = to_email
+    with smtplib.SMTP_SSL(host, port) as server:
+        server.login(login_, password)
+        server.sendmail(login_, [to_email], msg.as_string())
+
+
+def handle_run_daily_digest():
+    """Раз в сутки собирает непрочитанные email-уведомления (оценки/ДЗ) по каждому родителю
+    и отправляет их одним письмом-сводкой. Безопасно вызывать многократно за день —
+    повторно за тот же день сводку не отправит."""
+    import datetime
+    today = datetime.date.today().isoformat()
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute(f"SELECT 1 FROM {SCHEMA}.digest_runs WHERE run_date = %s", (today,))
+    if cur.fetchone():
+        conn.close()
+        return ok({"ok": True, "skipped": "already_sent_today"})
+
+    cur.execute(
+        f"""SELECT n.id, n.parent_id, n.text, n.type, u.email, u.display_name
+            FROM {SCHEMA}.notifications n
+            JOIN {SCHEMA}.users u ON u.id = n.parent_id
+            WHERE n.emailed = false AND u.email IS NOT NULL AND u.email != ''
+              AND n.type IN ('grade', 'homework')
+            ORDER BY n.parent_id, n.created_at"""
+    )
+    rows = cur.fetchall()
+
+    by_parent = {}
+    for r in rows:
+        by_parent.setdefault(r["parent_id"], {"email": r["email"], "items": []})
+        by_parent[r["parent_id"]]["items"].append(r["text"])
+
+    sent = 0
+    errors = []
+    for parent_id, data in by_parent.items():
+        body_text = "Здравствуйте!\n\nНовости из Гранатового Дневника за сегодня:\n\n"
+        body_text += "\n".join(f"• {t}" for t in data["items"])
+        body_text += "\n\nЭто автоматическое письмо, отвечать на него не нужно."
+        try:
+            send_email(data["email"], "Гранатовый Дневник — новости за день", body_text)
+            sent += 1
+        except Exception as e:
+            errors.append(str(e))
+            continue
+        cur.execute(
+            f"""UPDATE {SCHEMA}.notifications SET emailed = true
+                WHERE parent_id = %s AND type IN ('grade', 'homework') AND emailed = false""",
+            (parent_id,)
+        )
+
+    cur.execute(
+        f"INSERT INTO {SCHEMA}.digest_runs (run_date, sent_count) VALUES (%s, %s)",
+        (today, sent)
+    )
+    conn.commit()
+    conn.close()
+    return ok({"ok": True, "sent": sent, "errors": errors})
