@@ -1,0 +1,1 @@
+UPDATE classes SET is_active = false WHERE id = 11 AND grade = 6 AND letter = '';
