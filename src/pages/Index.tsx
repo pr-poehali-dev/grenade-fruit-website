@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Icon from "@/components/ui/icon";
-import { exportWeekScheduleToPdf, exportModuleScheduleToPdf } from "@/lib/exportSchedulePdf";
+import { exportWeekTemplateToPdf } from "@/lib/exportSchedulePdf";
 
 const API = "https://functions.poehali.dev/4adc107f-8465-4183-bc1a-9345fd1468dc";
 
@@ -633,7 +633,9 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
     api("get_modules").then(data => {
       if (Array.isArray(data)) {
         setModules(data);
-        setSelectedModule(data[0] || null);
+        const todayIso = new Date().toISOString().split("T")[0];
+        const current = data.find((m: Module) => todayIso >= m.date_start && todayIso <= m.date_end);
+        setSelectedModule(current || data[0] || null);
       }
     });
     loadWeek();
@@ -712,35 +714,32 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
     loadWeek();
   };
 
-  const exportWeekToPdf = () => {
-    const weekDates = getCurrentWeekDates();
-    const lessonsByDay: Record<string, { lesson_date?: string; day_of_week: string; time_slot: string; subject: string; teacher_name: string; room: string }[]> = {};
-    weekDates.forEach(({ iso, dayName }) => {
-      const dayLessons = weekSchedDates.filter(s => s.lesson_date === iso).sort((a, b) => a.sort_order - b.sort_order);
-      const fallbackLessons = items.filter(i => i.day_of_week === dayName).sort((a, b) => a.sort_order - b.sort_order);
-      lessonsByDay[iso] = dayLessons.length > 0 ? dayLessons : fallbackLessons;
-    });
-    exportWeekScheduleToPdf({ displayName: cls.display_name || cls.name }, weekDates, lessonsByDay);
-  };
+  const exportSchedulePdf = async () => {
+    let moduleDates: ScheduleDate[] = schedDates;
+    if (selectedModule && (view !== "module" || schedDates.length === 0)) {
+      const data = await api(`get_schedule_dates&class_id=${cls.id}&module_id=${selectedModule.id}`);
+      if (Array.isArray(data)) moduleDates = data;
+    }
 
-  const exportModuleToPdf = () => {
-    if (!selectedModule) return;
-    const dates = getAllDatesInModule(selectedModule);
-    const lessonsByDay: Record<string, { lesson_date?: string; day_of_week: string; time_slot: string; subject: string; teacher_name: string; room: string }[]> = {};
-    const specialByDay: Record<string, { emoji: string; label: string }> = {};
-    dates.forEach(date => {
-      const isBreak = breakDates.has(date);
-      const isHoliday = holidayDates.has(date);
-      const isHolidayCancels = holidayCancelDates.has(date);
-      const holiday = holidays.find(h => h.holiday_date === date);
-      if (isBreak) {
-        specialByDay[date] = { emoji: "🏖", label: "Каникулы" };
-      } else if (isHoliday && isHolidayCancels) {
-        specialByDay[date] = { emoji: "🎉", label: holiday?.name || "Праздник" };
-      }
-      lessonsByDay[date] = getLessonsForDate(date);
+    const lessonsByDayOfWeek: Record<string, { time_slot: string; subject: string; teacher_name: string; room: string }[]> = {};
+    DAYS.forEach(day => {
+      const fromModule = moduleDates.filter(s => s.day_of_week === day);
+      const seen = new Set<string>();
+      const uniqueLessons = fromModule
+        .filter(l => {
+          const key = `${l.time_slot}|${l.subject}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        })
+        .sort((a, b) => a.time_slot.localeCompare(b.time_slot));
+
+      lessonsByDayOfWeek[day] = uniqueLessons.length > 0
+        ? uniqueLessons
+        : items.filter(i => i.day_of_week === day).sort((a, b) => a.sort_order - b.sort_order);
     });
-    exportModuleScheduleToPdf({ displayName: cls.display_name || cls.name }, selectedModule.name, dates, lessonsByDay, specialByDay);
+
+    exportWeekTemplateToPdf({ displayName: cls.display_name || cls.name }, selectedModule?.name, lessonsByDayOfWeek);
   };
 
   // Single date-lesson helpers (module calendar view)
@@ -1017,10 +1016,9 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
           ))}
         </div>
         <button
-          onClick={view === "week" ? exportWeekToPdf : exportModuleToPdf}
-          disabled={view === "module" && !selectedModule}
-          title="Скачать расписание в PDF"
-          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+          onClick={exportSchedulePdf}
+          title="Скачать расписание на неделю в PDF"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all hover:opacity-80 shrink-0"
           style={{ background: "white", color: "#8B1A2F", border: "1.5px solid rgba(139,26,47,0.2)" }}>
           <Icon name="FileDown" size={15} /> Экспорт PDF
         </button>
