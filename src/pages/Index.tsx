@@ -2396,6 +2396,12 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
     return LEVELS.map(l => ({ ...l, count: counts.get(l.label) || 0 })).filter(x => x.count > 0);
   }, [grades]);
 
+  // Общий средний % по всем отметкам ребёнка — для карточки родителя
+  const overallAvgPct = useMemo(() => {
+    if (!grades.length) return null;
+    return Math.round(grades.reduce((sum, g) => sum + gradeToPercent(g.grade, g.grade_max), 0) / grades.length);
+  }, [grades]);
+
   const moduleGrades = selectedModule
     ? grades.filter(g => parseRuDateInModule(g.grade_date, selectedModule) !== null)
     : grades;
@@ -2421,6 +2427,11 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
     return { student: s, count: recs.length, avgPct };
   }).filter(x => x.count > 0);
 
+  // Средний % ребёнка за модуль — для родителя (students у родителя не загружается)
+  const childModuleAvgPct = moduleGrades.length
+    ? Math.round(moduleGrades.reduce((sum, g) => sum + gradeToPercent(g.grade, g.grade_max), 0) / moduleGrades.length)
+    : null;
+
   // Итоговые отметки по предметам за модуль
   const finalByStudent = useMemo(() => {
     const map = new Map<number, Grade[]>();
@@ -2434,6 +2445,17 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
   return (
     <div>
       <SectionTitle emoji="⭐" title={`Отметки · ${cls.display_name || cls.name}`} sub={user.role === "parent" ? user.child : undefined} />
+      {!loading && user.role === "parent" && overallAvgPct !== null && (
+        <div className="flex items-center gap-4 p-4 rounded-2xl mb-4" style={{ background: percentLevel(overallAvgPct).bg }}>
+          <div className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold shrink-0" style={{ background: "white", color: percentLevel(overallAvgPct).color, fontFamily: "Cormorant, serif" }}>
+            {overallAvgPct}%
+          </div>
+          <div>
+            <p className="text-sm font-bold" style={{ color: percentLevel(overallAvgPct).color }}>{percentLevel(overallAvgPct).label} уровень</p>
+            <p className="text-xs" style={{ color: "#9B6A7A" }}>Средний результат по всем отметкам · {grades.length} шт.</p>
+          </div>
+        </div>
+      )}
       {!loading && levelStats.length > 0 && (
         <div className="flex gap-2 mb-4 flex-wrap">
           {levelStats.map(l => (
@@ -2555,6 +2577,13 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
               </div>
             ) : (
               <Empty text="За этот модуль отметок нет" />
+            )}
+            {user.role === "parent" && childModuleAvgPct !== null && (
+              <div className="flex items-center gap-3 px-4 py-2.5 rounded-2xl" style={{ background: percentLevel(childModuleAvgPct).bg }}>
+                <p className="font-medium text-sm flex-1" style={{ color: percentLevel(childModuleAvgPct).color }}>{percentLevel(childModuleAvgPct).label} уровень за модуль</p>
+                <span className="text-xs" style={{ color: percentLevel(childModuleAvgPct).color }}>{moduleGrades.length} отметок</span>
+                <span className="text-sm font-bold px-2 py-0.5 rounded-full" style={{ background: "white", color: percentLevel(childModuleAvgPct).color }}>{childModuleAvgPct}%</span>
+              </div>
             )}
             {user.role === "teacher" && studentSummary.length > 0 && (
               <div className="space-y-2">
