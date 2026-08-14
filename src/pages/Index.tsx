@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Icon from "@/components/ui/icon";
 import { exportWeekTemplateToPdf, exportTeacherScheduleToPdf } from "@/lib/exportSchedulePdf";
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 const API = "https://functions.poehali.dev/4adc107f-8465-4183-bc1a-9345fd1468dc";
 
@@ -29,7 +30,7 @@ interface Holiday { id: number; name: string; holiday_date: string; school_year:
 interface Trip { id: number; class_id: number; name: string; description: string; trip_date: string; date_end: string; }
 interface Attachment { name: string; url: string; type: "file" | "link"; }
 interface Homework { id: number; subject: string; task: string; due_date: string; class_id: number; attachments?: Attachment[]; }
-interface Grade { id: number; student_id: number; subject: string; grade: number; comment: string; grade_date: string; student_name: string; }
+interface Grade { id: number; student_id: number; subject: string; grade: number; grade_max?: number | null; is_final?: boolean; comment: string; grade_date: string; student_name: string; }
 interface Attendance { id: number; student_id: number; subject: string; status: "absent" | "late"; comment: string; lesson_date: string; student_name: string; }
 interface Recommendation { id: number; subject: string; text: string; rec_date: string; student_name: string; teacher_name: string; }
 interface Notification { id: number; text: string; type: string; is_read: boolean; created_at: string; }
@@ -49,10 +50,36 @@ function Seed({ top, left, right, size, delay, opacity }: { top?: string; left?:
   );
 }
 
-function GradeBadge({ grade }: { grade: number }) {
+// Перевод отметки в проценты: 5→100%, 4→80%, 3→60%, 2→40%, 1→20%; для дробных — grade/grade_max*100
+function gradeToPercent(grade: number, gradeMax?: number | null): number {
+  if (gradeMax && gradeMax > 0) return Math.round((grade / gradeMax) * 100);
+  return Math.round(Math.max(0, Math.min(5, grade)) * 20);
+}
+
+// Уровень успеваемости по проценту: экспертный 85-100%, высокий 70-84%, базовый 50-69%, ниже базового <50%
+const LEVELS = [
+  { label: "Экспертный", color: "#1B5E20", bg: "#E3F3E4", bar: "#4CAF50" },
+  { label: "Высокий", color: "#5C0F1E", bg: "#F5E0E5", bar: "#D4A843" },
+  { label: "Базовый", color: "#E65100", bg: "#FFEBCC", bar: "#FF9800" },
+  { label: "Ниже базового", color: "#B71C1C", bg: "#FDE0E0", bar: "#F44336" },
+];
+function percentLevel(pct: number): { label: string; color: string; bg: string; bar: string } {
+  if (pct >= 85) return LEVELS[0];
+  if (pct >= 70) return LEVELS[1];
+  if (pct >= 50) return LEVELS[2];
+  return LEVELS[3];
+}
+
+function gradeLabel(grade: number, gradeMax?: number | null): string {
+  return gradeMax ? `${grade}/${gradeMax}` : String(grade);
+}
+
+function GradeBadge({ grade, gradeMax }: { grade: number; gradeMax?: number | null }) {
+  const pct = gradeToPercent(grade, gradeMax);
+  const level = gradeMax ? (pct >= 60 ? 5 : pct >= 40 ? 4 : pct >= 20 ? 3 : 2) : grade;
   return (
-    <div className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-bold shrink-0 grade-${grade}`} style={{ fontFamily: "Cormorant, serif" }}>
-      {grade}
+    <div className={`w-10 h-10 rounded-full flex flex-col items-center justify-center shrink-0 grade-${level}`} style={{ fontFamily: "Cormorant, serif" }}>
+      <span className="font-bold leading-none" style={{ fontSize: gradeMax ? 11 : 18 }}>{gradeLabel(grade, gradeMax)}</span>
     </div>
   );
 }
@@ -2307,7 +2334,7 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
-  const [form, setForm] = useState({ student_id: "", subject: "", grade: "5", comment: "", grade_date: "" });
+  const [form, setForm] = useState({ student_id: "", subject: "", grade_type: "score" as "score" | "fraction", grade: "5", grade_max: "10", is_final: false, comment: "", grade_date: "" });
   const [saving, setSaving] = useState(false);
 
   // Модули (учебные периоды) для сводки
@@ -2343,33 +2370,76 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    await api("add_grade", "POST", { ...form, grade: Number(form.grade), teacher_id: user.id, class_id: cls.id });
-    setSaving(false); setShowAdd(false); load();
+    await api("add_grade", "POST", {
+      student_id: form.student_id,
+      subject: form.subject,
+      grade: Number(form.grade),
+      grade_max: form.grade_type === "fraction" ? Number(form.grade_max) : null,
+      is_final: form.is_final,
+      comment: form.comment,
+      grade_date: form.grade_date,
+      teacher_id: user.id,
+      class_id: cls.id,
+    });
+    setSaving(false); setShowAdd(false);
+    setForm({ student_id: "", subject: "", grade_type: "score", grade: "5", grade_max: "10", is_final: false, comment: "", grade_date: "" });
+    load();
   };
 
-  const stats = [5, 4, 3, 2].map(g => ({ g, count: grades.filter(gr => gr.grade === g).length })).filter(x => x.count > 0);
+  // Статистика по уровням успеваемости в процентах (по всем загруженным отметкам)
+  const levelStats = useMemo(() => {
+    const counts = new Map<string, number>();
+    grades.forEach(g => {
+      const lvl = percentLevel(gradeToPercent(g.grade, g.grade_max)).label;
+      counts.set(lvl, (counts.get(lvl) || 0) + 1);
+    });
+    return LEVELS.map(l => ({ ...l, count: counts.get(l.label) || 0 })).filter(x => x.count > 0);
+  }, [grades]);
 
   const moduleGrades = selectedModule
     ? grades.filter(g => parseRuDateInModule(g.grade_date, selectedModule) !== null)
     : grades;
 
-  const moduleStats = [5, 4, 3, 2, 1].map(g => ({ g, count: moduleGrades.filter(gr => gr.grade === g).length })).filter(x => x.count > 0);
+  // Динамика среднего % по датам за модуль — данные для графика
+  const dateChartData = useMemo(() => {
+    if (!selectedModule) return [];
+    const map = new Map<string, { iso: string; label: string; total: number; count: number }>();
+    moduleGrades.forEach(g => {
+      const iso = parseRuDateInModule(g.grade_date, selectedModule);
+      if (!iso) return;
+      const entry = map.get(iso) || { iso, label: g.grade_date, total: 0, count: 0 };
+      entry.total += gradeToPercent(g.grade, g.grade_max);
+      entry.count += 1;
+      map.set(iso, entry);
+    });
+    return [...map.values()].sort((a, b) => a.iso.localeCompare(b.iso)).map(e => ({ date: e.label, percent: Math.round(e.total / e.count) }));
+  }, [moduleGrades, selectedModule]);
 
   const studentSummary = students.map(s => {
     const recs = moduleGrades.filter(g => g.student_id === s.id);
-    const avg = recs.length ? recs.reduce((sum, g) => sum + g.grade, 0) / recs.length : 0;
-    return { student: s, count: recs.length, avg };
+    const avgPct = recs.length ? Math.round(recs.reduce((sum, g) => sum + gradeToPercent(g.grade, g.grade_max), 0) / recs.length) : 0;
+    return { student: s, count: recs.length, avgPct };
   }).filter(x => x.count > 0);
+
+  // Итоговые отметки по предметам за модуль
+  const finalByStudent = useMemo(() => {
+    const map = new Map<number, Grade[]>();
+    moduleGrades.filter(g => g.is_final).forEach(g => {
+      if (!map.has(g.student_id)) map.set(g.student_id, []);
+      map.get(g.student_id)!.push(g);
+    });
+    return map;
+  }, [moduleGrades]);
 
   return (
     <div>
       <SectionTitle emoji="⭐" title={`Отметки · ${cls.display_name || cls.name}`} sub={user.role === "parent" ? user.child : undefined} />
-      {!loading && stats.length > 0 && (
+      {!loading && levelStats.length > 0 && (
         <div className="flex gap-2 mb-4 flex-wrap">
-          {stats.map(({ g, count }) => (
-            <div key={g} className={`px-4 py-2 rounded-2xl grade-${g} flex items-center gap-2`}>
-              <span className="text-xl font-bold" style={{ fontFamily: "Cormorant, serif" }}>{g}</span>
-              <span className="text-sm font-medium">× {count}</span>
+          {levelStats.map(l => (
+            <div key={l.label} className="px-4 py-2 rounded-2xl flex items-center gap-2" style={{ background: l.bg, color: l.color }}>
+              <span className="text-sm font-bold">{l.label}</span>
+              <span className="text-sm font-medium">× {l.count}</span>
             </div>
           ))}
         </div>
@@ -2387,15 +2457,19 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
           {grades.map((g, i) => (
             <div key={g.id} className="flex items-start gap-3 p-4 rounded-2xl card-hover animate-slide-up"
               style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.06}s`, opacity: 0 }}>
-              <GradeBadge grade={g.grade} />
+              <GradeBadge grade={g.grade} gradeMax={g.grade_max} />
               <div className="flex-1">
                 <div className="flex items-center gap-2 mb-0.5 flex-wrap">
                   <span className="font-semibold text-sm" style={{ color: "#3D1520" }}>{g.subject}</span>
                   {user.role === "teacher" && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{g.student_name}</span>}
+                  {g.is_final && <span className="text-xs px-2 py-0.5 rounded-full font-medium" style={{ background: "#FFEBCC", color: "#E65100" }}>Итоговая</span>}
                 </div>
                 {g.comment && <p className="text-sm" style={{ color: "#9B6A7A" }}>{g.comment}</p>}
               </div>
-              <span className="text-xs shrink-0" style={{ color: "#9B6A7A" }}>{g.grade_date}</span>
+              <div className="text-right shrink-0">
+                <div className="text-xs" style={{ color: "#9B6A7A" }}>{g.grade_date}</div>
+                <div className="text-xs font-semibold" style={{ color: "#8B1A2F" }}>{gradeToPercent(g.grade, g.grade_max)}%</div>
+              </div>
             </div>
           ))}
         </div>
@@ -2413,11 +2487,37 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
                   </Select>
                 </Field>
                 <Field label="Предмет"><Input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="Математика" required /></Field>
-                <Field label="Отметка">
-                  <Select value={form.grade} onChange={e => setForm(f => ({ ...f, grade: e.target.value }))}>
-                    {[5, 4, 3, 2, 1].map(g => <option key={g} value={g}>{g}</option>)}
-                  </Select>
+                <Field label="Формат отметки">
+                  <div className="flex rounded-xl p-1" style={{ background: "#F5E0E5" }}>
+                    {([["score", "Балл"], ["fraction", "Соотношение"]] as const).map(([val, label]) => (
+                      <button key={val} type="button" onClick={() => setForm(f => ({ ...f, grade_type: val, grade: val === "score" ? "5" : "0" }))}
+                        className="flex-1 py-2 rounded-lg text-sm font-medium transition-all"
+                        style={{ background: form.grade_type === val ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "transparent", color: form.grade_type === val ? "white" : "#8B1A2F" }}>
+                        {label}
+                      </button>
+                    ))}
+                  </div>
                 </Field>
+                {form.grade_type === "score" ? (
+                  <Field label="Отметка">
+                    <Select value={form.grade} onChange={e => setForm(f => ({ ...f, grade: e.target.value }))}>
+                      {[5, 4, 3, 2, 1].map(g => <option key={g} value={g}>{g}</option>)}
+                    </Select>
+                  </Field>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field label="Выполнено">
+                      <Input type="number" min={0} value={form.grade} onChange={e => setForm(f => ({ ...f, grade: e.target.value }))} required />
+                    </Field>
+                    <Field label="Всего">
+                      <Input type="number" min={1} value={form.grade_max} onChange={e => setForm(f => ({ ...f, grade_max: e.target.value }))} required />
+                    </Field>
+                  </div>
+                )}
+                <label className="flex items-center gap-2 text-sm cursor-pointer select-none" style={{ color: "#3D1520" }}>
+                  <input type="checkbox" checked={form.is_final} onChange={e => setForm(f => ({ ...f, is_final: e.target.checked }))} />
+                  Итоговая отметка за модуль
+                </label>
                 <Field label="Комментарий"><Input value={form.comment} onChange={e => setForm(f => ({ ...f, comment: e.target.value }))} placeholder="Необязательно" /></Field>
                 <Field label="Дата"><Input value={form.grade_date} onChange={e => setForm(f => ({ ...f, grade_date: e.target.value }))} placeholder="13 мая" required /></Field>
                 <SaveBtn loading={saving} />
@@ -2428,38 +2528,74 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
       )}
       {showSummary && (
         <Modal title="Сводка за модуль" onClose={() => setShowSummary(false)}>
-          <div className="space-y-3">
+          <div className="space-y-4">
             <Field label="Модуль">
               <Select value={selectedModule?.id || ""} onChange={e => setSelectedModule(modules.find(m => m.id === Number(e.target.value)) || null)}>
                 {modules.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
               </Select>
             </Field>
             {selectedModule && (
-              <p className="text-xs" style={{ color: "#9B6A7A" }}>
+              <p className="text-xs -mt-2" style={{ color: "#9B6A7A" }}>
                 {new Date(selectedModule.date_start).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })} — {new Date(selectedModule.date_end).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
               </p>
             )}
-            {moduleStats.length > 0 ? (
-              <div className="flex gap-2 flex-wrap">
-                {moduleStats.map(({ g, count }) => (
-                  <div key={g} className={`px-4 py-2 rounded-2xl grade-${g} flex items-center gap-2`}>
-                    <span className="text-xl font-bold" style={{ fontFamily: "Cormorant, serif" }}>{g}</span>
-                    <span className="text-sm font-medium">× {count}</span>
-                  </div>
-                ))}
+            {dateChartData.length > 0 ? (
+              <div style={{ width: "100%", height: 220 }}>
+                <ResponsiveContainer>
+                  <BarChart data={dateChartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(139,26,47,0.1)" />
+                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#9B6A7A" }} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: "#9B6A7A" }} tickFormatter={v => `${v}%`} />
+                    <Tooltip formatter={(v: number) => [`${v}%`, "Средний результат"]} contentStyle={{ borderRadius: 12, border: "1.5px solid rgba(139,26,47,0.15)", fontSize: 12 }} />
+                    <Bar dataKey="percent" radius={[6, 6, 0, 0]}>
+                      {dateChartData.map((d, i) => <Cell key={i} fill={percentLevel(d.percent).bar} />)}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
               </div>
             ) : (
               <Empty text="За этот модуль отметок нет" />
             )}
             {user.role === "teacher" && studentSummary.length > 0 && (
-              <div className="space-y-2 pt-2">
-                {studentSummary.map(({ student, count, avg }) => (
-                  <div key={student.id} className="flex items-center gap-3 px-4 py-2.5 rounded-2xl" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.08)" }}>
-                    <p className="font-medium text-sm flex-1" style={{ color: "#3D1520" }}>{student.full_name}</p>
-                    <span className="text-xs" style={{ color: "#9B6A7A" }}>{count} отметок</span>
-                    <span className="text-sm font-bold px-2 py-0.5 rounded-full" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>ср. {avg.toFixed(1)}</span>
-                  </div>
-                ))}
+              <div className="space-y-2">
+                <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#9B6A7A" }}>Средний результат по ученикам</p>
+                {studentSummary.map(({ student, count, avgPct }) => {
+                  const lvl = percentLevel(avgPct);
+                  return (
+                    <div key={student.id} className="flex items-center gap-3 px-4 py-2.5 rounded-2xl" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.08)" }}>
+                      <p className="font-medium text-sm flex-1" style={{ color: "#3D1520" }}>{student.full_name}</p>
+                      <span className="text-xs" style={{ color: "#9B6A7A" }}>{count} отметок</span>
+                      <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ background: lvl.bg, color: lvl.color }}>{lvl.label}</span>
+                      <span className="text-sm font-bold px-2 py-0.5 rounded-full" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{avgPct}%</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {finalByStudent.size > 0 && (
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#9B6A7A" }}>Итоговые отметки по предметам</p>
+                {[...finalByStudent.entries()].map(([studentId, recs]) => {
+                  const studentName = user.role === "parent" ? user.child : (students.find(s => s.id === studentId)?.full_name || recs[0]?.student_name);
+                  return (
+                    <div key={studentId} className="p-3 rounded-2xl" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)" }}>
+                      {user.role === "teacher" && <p className="font-medium text-sm mb-2" style={{ color: "#3D1520" }}>{studentName}</p>}
+                      <div className="space-y-1.5">
+                        {recs.map(g => {
+                          const pct = gradeToPercent(g.grade, g.grade_max);
+                          const lvl = percentLevel(pct);
+                          return (
+                            <div key={g.id} className="flex items-center gap-2 text-sm">
+                              <span className="flex-1" style={{ color: "#3D1520" }}>{g.subject}</span>
+                              <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ background: lvl.bg, color: lvl.color }}>{lvl.label}</span>
+                              <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{pct}%</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>

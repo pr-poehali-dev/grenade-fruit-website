@@ -967,20 +967,23 @@ def handle_get_grades(params):
 
 
 def handle_add_grade(body):
+    grade_max = body.get("grade_max")
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        f"""INSERT INTO {SCHEMA}.grades (student_id, subject, grade, comment, grade_date, teacher_id, class_id)
-            VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *""",
-        (body.get("student_id"), body.get("subject"), body.get("grade"),
-         body.get("comment", ""), body.get("grade_date"), body.get("teacher_id"), body.get("class_id"))
+        f"""INSERT INTO {SCHEMA}.grades (student_id, subject, grade, grade_max, is_final, comment, grade_date, teacher_id, class_id)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *""",
+        (body.get("student_id"), body.get("subject"), body.get("grade"), grade_max,
+         bool(body.get("is_final")), body.get("comment", ""), body.get("grade_date"),
+         body.get("teacher_id"), body.get("class_id"))
     )
     row = cur.fetchone()
+    grade_label = f"{body.get('grade')}/{grade_max}" if grade_max else body.get("grade")
     cur.execute(f"SELECT parent_id FROM {SCHEMA}.parent_students WHERE student_id = %s", (body.get("student_id"),))
     for p in cur.fetchall():
         cur.execute(
             f"INSERT INTO {SCHEMA}.notifications (parent_id, text, type) VALUES (%s, %s, 'grade')",
-            (p["parent_id"], f"Новая отметка по {body.get('subject')}: {body.get('grade')} ⭐")
+            (p["parent_id"], f"Новая отметка по {body.get('subject')}: {grade_label} ⭐")
         )
     conn.commit()
     conn.close()
