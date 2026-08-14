@@ -894,6 +894,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
   };
 
   const removeHoliday = async (id: number) => {
+    if (!confirm("Отменить праздник? Уроки в этот день вернутся в расписание.")) return;
     await api("delete_holiday", "POST", { id });
     loadBreaksHolidays();
   };
@@ -917,6 +918,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
   };
 
   const removeTrip = async (id: number) => {
+    if (!confirm("Отменить выезд?")) return;
     await api("delete_trip", "POST", { id });
     loadBreaksHolidays();
   };
@@ -1002,8 +1004,9 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                             {isHolidayDay && !isHolidayCancels && <span className="font-normal" style={{ color: "#5B8D63" }}> · уроки по расписанию</span>}
                           </span>
                           {user.role === "teacher" && isHolidayDay && holiday && (
-                            <button onClick={() => removeHoliday(holiday.id)} className="w-6 h-6 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
-                              <Icon name="Trash2" size={12} className="text-red-400" />
+                            <button onClick={() => removeHoliday(holiday.id)}
+                              className="flex items-center gap-1 px-2 h-6 rounded-lg hover:bg-red-50 shrink-0 text-xs font-medium text-red-400">
+                              <Icon name="X" size={12} /> Отменить
                             </button>
                           )}
                         </div>
@@ -1019,8 +1022,9 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                             {trip?.description && <span className="text-xs ml-1" style={{ color: "#5B8DB8" }}>· {trip.description}</span>}
                           </div>
                           {user.role === "teacher" && trip && (
-                            <button onClick={() => removeTrip(trip.id)} className="w-6 h-6 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
-                              <Icon name="Trash2" size={12} className="text-red-400" />
+                            <button onClick={() => removeTrip(trip.id)}
+                              className="flex items-center gap-1 px-2 h-6 rounded-lg hover:bg-red-50 shrink-0 text-xs font-medium text-red-400">
+                              <Icon name="X" size={12} /> Отменить
                             </button>
                           )}
                         </div>
