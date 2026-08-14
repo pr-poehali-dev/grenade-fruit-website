@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Icon from "@/components/ui/icon";
-import { exportWeekTemplateToPdf } from "@/lib/exportSchedulePdf";
+import { exportWeekTemplateToPdf, exportTeacherScheduleToPdf } from "@/lib/exportSchedulePdf";
 
 const API = "https://functions.poehali.dev/4adc107f-8465-4183-bc1a-9345fd1468dc";
 
@@ -341,6 +341,32 @@ export default function Index() {
     setNotifs(prev => prev.map(n => ({ ...n, is_read: true })));
   };
 
+  const [exportingMySchedule, setExportingMySchedule] = useState(false);
+  const exportMySchedule = async () => {
+    if (!user) return;
+    const teacherName = user.display_name || user.login;
+    setExportingMySchedule(true);
+    try {
+      const data = await api(`get_schedule&teacher_name=${encodeURIComponent(teacherName)}`);
+      const rows: { day_of_week: string; time_slot: string; subject: string; room: string; class_id: number; class_display_name?: string }[] = Array.isArray(data) ? data : [];
+      const classById = new Map(classes.map(c => [c.id, c.display_name || c.name]));
+      const lessonsByDayOfWeek: Record<string, { time_slot: string; subject: string; class_name: string; room: string }[]> = {};
+      rows.forEach(r => {
+        const day = r.day_of_week;
+        if (!lessonsByDayOfWeek[day]) lessonsByDayOfWeek[day] = [];
+        lessonsByDayOfWeek[day].push({
+          time_slot: r.time_slot,
+          subject: r.subject,
+          class_name: r.class_display_name || classById.get(r.class_id) || "—",
+          room: r.room,
+        });
+      });
+      exportTeacherScheduleToPdf(teacherName, lessonsByDayOfWeek);
+    } finally {
+      setExportingMySchedule(false);
+    }
+  };
+
   if (!user) return <LoginScreen onLogin={login} />;
 
   // Классы отсортированные по параллели
@@ -374,6 +400,15 @@ export default function Index() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {user.role === "teacher" && (
+              <button onClick={exportMySchedule} disabled={exportingMySchedule}
+                title="Скачать моё расписание в PDF"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all hover:opacity-80 disabled:opacity-50 disabled:cursor-wait"
+                style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
+                <Icon name={exportingMySchedule ? "Loader2" : "FileDown"} size={13} className={exportingMySchedule ? "animate-spin" : ""} />
+                <span className="hidden sm:inline">Моё расписание</span>
+              </button>
+            )}
             {user.role === "teacher" && (
               <div className="relative md:hidden">
                 <button onClick={() => setShowClassPicker(!showClassPicker)}

@@ -339,9 +339,18 @@ def handle_delete_parent(body):
 def handle_get_schedule(params):
     class_id = params.get("class_id")
     day = params.get("day")
+    teacher_name = params.get("teacher_name")
     conn = get_conn()
     cur = conn.cursor()
-    if class_id and day:
+    if teacher_name:
+        cur.execute(
+            f"""SELECT s.*, c.display_name as class_display_name FROM {SCHEMA}.schedule s
+                LEFT JOIN {SCHEMA}.classes c ON c.id = s.class_id
+                WHERE TRIM(s.teacher_name) = TRIM(%s) AND s.active = true
+                ORDER BY s.day_of_week, s.sort_order""",
+            (teacher_name,)
+        )
+    elif class_id and day:
         cur.execute(
             f"SELECT * FROM {SCHEMA}.schedule WHERE class_id = %s AND day_of_week = %s AND active = true ORDER BY sort_order",
             (class_id, day)

@@ -9,6 +9,13 @@ interface ExportLesson {
   room: string;
 }
 
+interface ExportTeacherLesson {
+  time_slot: string;
+  subject: string;
+  class_name: string;
+  room: string;
+}
+
 interface ExportClassInfo {
   displayName: string;
 }
@@ -110,4 +117,83 @@ export function exportWeekTemplateToPdf(
   );
 
   doc.save(`Расписание ${classInfo.displayName}.pdf`);
+}
+
+/**
+ * Генерирует и скачивает PDF-файл с личным расписанием учителя —
+ * уроки во всех классах, где он преподаёт, сгруппированные по дням недели (Пн–Пт).
+ */
+export function exportTeacherScheduleToPdf(
+  teacherName: string,
+  lessonsByDayOfWeek: Record<string, ExportTeacherLesson[]>
+) {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  registerFonts(doc);
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  let cursorY = 18;
+
+  doc.setFont("Roboto", "bold");
+  doc.setFontSize(16);
+  doc.setTextColor(...GARNET_DARK);
+  doc.text(`Расписание · ${teacherName}`, pageWidth / 2, cursorY, { align: "center" });
+  cursorY += 6;
+
+  doc.setFont("Roboto", "normal");
+  doc.setFontSize(9);
+  doc.setTextColor(...TEXT_MUTED);
+  doc.text("Учебная неделя", pageWidth / 2, cursorY, { align: "center" });
+  cursorY += 8;
+
+  WEEK_DAYS.forEach(dayName => {
+    const lessons = (lessonsByDayOfWeek[dayName] || []).slice().sort((a, b) => a.time_slot.localeCompare(b.time_slot));
+
+    if (cursorY > doc.internal.pageSize.getHeight() - 30) {
+      doc.addPage();
+      cursorY = 18;
+    }
+
+    doc.setFillColor(...BLUSH);
+    doc.roundedRect(14, cursorY - 5, pageWidth - 28, 8, 2, 2, "F");
+    doc.setFont("Roboto", "bold");
+    doc.setFontSize(11);
+    doc.setTextColor(...GARNET);
+    doc.text(dayName, 17, cursorY);
+    cursorY += 6;
+
+    if (lessons.length === 0) {
+      doc.setFont("Roboto", "normal");
+      doc.setFontSize(9);
+      doc.setTextColor(...TEXT_MUTED);
+      doc.text("Нет уроков", 17, cursorY + 3);
+      cursorY += 10;
+      return;
+    }
+
+    autoTable(doc, {
+      startY: cursorY,
+      margin: { left: 14, right: 14 },
+      head: [["Время", "Предмет", "Класс", "Кабинет"]],
+      body: lessons.map(l => [l.time_slot, l.subject, l.class_name, l.room || "—"]),
+      styles: { font: "Roboto", fontSize: 9, textColor: TEXT_DARK, cellPadding: 2.2 },
+      headStyles: { fillColor: GARNET, textColor: [255, 255, 255], font: "Roboto", fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [253, 246, 238] },
+      theme: "grid",
+    });
+
+    // @ts-expect-error lastAutoTable is added at runtime by jspdf-autotable
+    cursorY = doc.lastAutoTable.finalY + 8;
+  });
+
+  doc.setFont("Roboto", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(...TEXT_MUTED);
+  doc.text(
+    `Сформировано ${new Date().toLocaleDateString("ru-RU")}`,
+    pageWidth / 2,
+    doc.internal.pageSize.getHeight() - 8,
+    { align: "center" }
+  );
+
+  doc.save(`Расписание ${teacherName}.pdf`);
 }
