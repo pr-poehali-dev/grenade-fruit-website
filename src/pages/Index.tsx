@@ -151,10 +151,14 @@ function LoginScreen({ onLogin }: { onLogin: (u: User) => void }) {
   const [loading, setLoading] = useState(false);
   const [installPrompt, setInstallPrompt] = useState<any>(null);
   const [installed, setInstalled] = useState(false);
+  const [isIos, setIsIos] = useState(false);
+  const [showIosHint, setShowIosHint] = useState(false);
 
   useEffect(() => {
     const isStandalone = window.matchMedia("(display-mode: standalone)").matches || (window.navigator as any).standalone;
     if (isStandalone) setInstalled(true);
+    const ios = /iphone|ipad|ipod/i.test(window.navigator.userAgent) && !(window as any).MSStream;
+    setIsIos(ios);
     const onBeforeInstall = (e: Event) => { e.preventDefault(); setInstallPrompt(e); };
     const onInstalled = () => { setInstalled(true); setInstallPrompt(null); };
     window.addEventListener("beforeinstallprompt", onBeforeInstall);
@@ -234,6 +238,27 @@ function LoginScreen({ onLogin }: { onLogin: (u: User) => void }) {
               style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
               <Icon name="Download" size={15} /> Установить приложение
             </button>
+          )}
+          {isIos && !installed && (
+            <>
+              <button onClick={() => setShowIosHint(true)} type="button"
+                className="w-full mt-3 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all"
+                style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
+                <Icon name="Download" size={15} /> Установить приложение
+              </button>
+              {showIosHint && (
+                <div className="mt-3 p-3.5 rounded-xl text-xs leading-relaxed" style={{ background: "#FDF6EE", border: "1px solid rgba(139,26,47,0.15)", color: "#5C0F1E" }}>
+                  <p className="font-medium mb-2" style={{ color: "#8B1A2F" }}>Установка на iPhone/iPad:</p>
+                  <ol className="space-y-1.5">
+                    <li className="flex items-center gap-1.5">
+                      1. Нажмите <Icon name="Share" size={13} /> «Поделиться» внизу Safari
+                    </li>
+                    <li>2. Выберите «На экран «Домой»»</li>
+                    <li>3. Нажмите «Добавить»</li>
+                  </ol>
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
