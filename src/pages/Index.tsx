@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Icon from "@/components/ui/icon";
+import { exportWeekScheduleToPdf, exportModuleScheduleToPdf } from "@/lib/exportSchedulePdf";
 
 const API = "https://functions.poehali.dev/4adc107f-8465-4183-bc1a-9345fd1468dc";
 
@@ -711,6 +712,37 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
     loadWeek();
   };
 
+  const exportWeekToPdf = () => {
+    const weekDates = getCurrentWeekDates();
+    const lessonsByDay: Record<string, { lesson_date?: string; day_of_week: string; time_slot: string; subject: string; teacher_name: string; room: string }[]> = {};
+    weekDates.forEach(({ iso, dayName }) => {
+      const dayLessons = weekSchedDates.filter(s => s.lesson_date === iso).sort((a, b) => a.sort_order - b.sort_order);
+      const fallbackLessons = items.filter(i => i.day_of_week === dayName).sort((a, b) => a.sort_order - b.sort_order);
+      lessonsByDay[iso] = dayLessons.length > 0 ? dayLessons : fallbackLessons;
+    });
+    exportWeekScheduleToPdf({ displayName: cls.display_name || cls.name }, weekDates, lessonsByDay);
+  };
+
+  const exportModuleToPdf = () => {
+    if (!selectedModule) return;
+    const dates = getAllDatesInModule(selectedModule);
+    const lessonsByDay: Record<string, { lesson_date?: string; day_of_week: string; time_slot: string; subject: string; teacher_name: string; room: string }[]> = {};
+    const specialByDay: Record<string, { emoji: string; label: string }> = {};
+    dates.forEach(date => {
+      const isBreak = breakDates.has(date);
+      const isHoliday = holidayDates.has(date);
+      const isHolidayCancels = holidayCancelDates.has(date);
+      const holiday = holidays.find(h => h.holiday_date === date);
+      if (isBreak) {
+        specialByDay[date] = { emoji: "🏖", label: "Каникулы" };
+      } else if (isHoliday && isHolidayCancels) {
+        specialByDay[date] = { emoji: "🎉", label: holiday?.name || "Праздник" };
+      }
+      lessonsByDay[date] = getLessonsForDate(date);
+    });
+    exportModuleScheduleToPdf({ displayName: cls.display_name || cls.name }, selectedModule.name, dates, lessonsByDay, specialByDay);
+  };
+
   // Single date-lesson helpers (module calendar view)
   const openAddDateLesson = (date: string) => {
     setEditingDateLesson(null);
@@ -971,17 +1003,27 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
       <SectionTitle emoji="📅" title={`Расписание · ${cls.display_name || cls.name}`} />
 
       {/* View toggle */}
-      <div className="flex gap-2 mb-5">
-        {([["week", "📋 Недельное"], ["module", "🗓 Календарь модуля"]] as [SchedView, string][]).map(([v, label]) => (
-          <button key={v} onClick={() => setView(v)}
-            className="px-4 py-2 rounded-xl text-sm font-medium transition-all"
-            style={{
-              background: view === v ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
-              color: view === v ? "white" : "#3D1520",
-              border: "1.5px solid rgba(139,26,47,0.15)",
-              boxShadow: view === v ? "0 4px 12px rgba(139,26,47,0.2)" : "none",
-            }}>{label}</button>
-        ))}
+      <div className="flex items-center gap-2 mb-5 flex-wrap">
+        <div className="flex gap-2 flex-1">
+          {([["week", "📋 Недельное"], ["module", "🗓 Календарь модуля"]] as [SchedView, string][]).map(([v, label]) => (
+            <button key={v} onClick={() => setView(v)}
+              className="px-4 py-2 rounded-xl text-sm font-medium transition-all"
+              style={{
+                background: view === v ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+                color: view === v ? "white" : "#3D1520",
+                border: "1.5px solid rgba(139,26,47,0.15)",
+                boxShadow: view === v ? "0 4px 12px rgba(139,26,47,0.2)" : "none",
+              }}>{label}</button>
+          ))}
+        </div>
+        <button
+          onClick={view === "week" ? exportWeekToPdf : exportModuleToPdf}
+          disabled={view === "module" && !selectedModule}
+          title="Скачать расписание в PDF"
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all hover:opacity-80 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+          style={{ background: "white", color: "#8B1A2F", border: "1.5px solid rgba(139,26,47,0.2)" }}>
+          <Icon name="FileDown" size={15} /> Экспорт PDF
+        </button>
       </div>
 
       {/* ── WEEK VIEW ── */}
