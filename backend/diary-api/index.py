@@ -670,9 +670,20 @@ def handle_get_schedule_dates(params):
     class_id = params.get("class_id")
     module_id = params.get("module_id")
     lesson_date = params.get("lesson_date")
+    teacher_name = params.get("teacher_name")
+    school_year = params.get("school_year")
     conn = get_conn()
     cur = conn.cursor()
-    if lesson_date:
+    if teacher_name:
+        cur.execute(
+            f"""SELECT sd.*, c.display_name as class_display_name FROM {SCHEMA}.schedule_dates sd
+                JOIN {SCHEMA}.modules m ON m.id = sd.module_id
+                LEFT JOIN {SCHEMA}.classes c ON c.id = sd.class_id
+                WHERE TRIM(sd.teacher_name) = TRIM(%s) AND m.school_year = %s
+                ORDER BY sd.lesson_date, sd.sort_order""",
+            (teacher_name, school_year or "2026-2027")
+        )
+    elif lesson_date:
         cur.execute(
             f"""SELECT * FROM {SCHEMA}.schedule_dates
                 WHERE class_id = %s AND lesson_date = %s

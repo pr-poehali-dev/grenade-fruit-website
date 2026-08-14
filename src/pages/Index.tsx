@@ -1775,6 +1775,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
 }
 
 // ─── My Schedule Tab (для учителя — все уроки во всех классах + ДЗ) ──
+const CURRENT_SCHOOL_YEAR = "2026-2027";
 interface MyLesson { id: number; day_of_week: string; time_slot: string; subject: string; room: string; class_id: number; class_display_name?: string; sort_order: number; }
 function MyScheduleTab({ user, classes }: { user: User; classes: SchoolClass[] }) {
   const [lessons, setLessons] = useState<MyLesson[]>([]);
@@ -1787,11 +1788,24 @@ function MyScheduleTab({ user, classes }: { user: User; classes: SchoolClass[] }
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [lessonsData, homeworkData] = await Promise.all([
+    const [datesData, scheduleData, homeworkData] = await Promise.all([
+      api(`get_schedule_dates&teacher_name=${encodeURIComponent(teacherName)}&school_year=${encodeURIComponent(CURRENT_SCHOOL_YEAR)}`),
       api(`get_schedule&teacher_name=${encodeURIComponent(teacherName)}`),
       api(`get_homework&teacher_id=${user.id}`),
     ]);
-    if (Array.isArray(lessonsData)) setLessons(lessonsData);
+    // Расписание берётся из schedule_dates (актуальные уроки по модулям текущего учебного года).
+    // Один и тот же урок повторяется в каждом модуле — дедуплицируем по дню+времени+предмету+классу.
+    const fromDates: MyLesson[] = Array.isArray(datesData) ? datesData : [];
+    const seen = new Set<string>();
+    const dedupedDates = fromDates.filter(l => {
+      const key = `${l.day_of_week}|${l.time_slot}|${(l.subject || "").trim()}|${l.class_id}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    // Фолбэк на базовый шаблон (schedule), если по модулям текущего года ничего не найдено
+    const finalLessons = dedupedDates.length > 0 ? dedupedDates : (Array.isArray(scheduleData) ? scheduleData : []);
+    setLessons(finalLessons);
     if (Array.isArray(homeworkData)) setHomeworks(homeworkData);
     setLoading(false);
   }, [teacherName, user.id]);
