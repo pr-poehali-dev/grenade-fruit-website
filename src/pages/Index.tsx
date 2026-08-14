@@ -428,6 +428,12 @@ export default function Index() {
                         {cl.display_name || `${cl.grade} класс`}
                       </button>
                     ))}
+                    <button
+                      onClick={() => { setSelectedClass(null); goTab("extended_day"); setShowClassPicker(false); }}
+                      className="w-full text-left px-4 py-2.5 text-sm font-medium hover:bg-pink-50 transition-colors flex items-center gap-1.5"
+                      style={{ color: tab === "extended_day" ? "#8B1A2F" : "#3D1520", fontWeight: tab === "extended_day" ? 700 : 500, borderTop: "1px solid rgba(139,26,47,0.08)" }}>
+                      <Icon name="Sun" size={13} /> Продлёнка
+                    </button>
                   </div>
                 )}
               </div>
@@ -551,6 +557,13 @@ export default function Index() {
                     {cl.display_name || `${cl.grade} класс`}
                   </button>
                 ))}
+                {user.role === "teacher" && (
+                  <button onClick={() => { setSelectedClass(null); goTab("extended_day"); }}
+                    className="py-2.5 px-4 rounded-xl text-sm font-medium text-left flex items-center gap-1.5"
+                    style={{ background: "white", color: "#3D1520", border: "1.5px solid rgba(139,26,47,0.12)" }}>
+                    <Icon name="Sun" size={15} /> Продлёнка
+                  </button>
+                )}
               </div>
             </div>
           ) : (
