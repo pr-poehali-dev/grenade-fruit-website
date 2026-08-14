@@ -1,0 +1,1 @@
+ALTER TABLE holidays ADD COLUMN IF NOT EXISTS cancels_lessons BOOLEAN NOT NULL DEFAULT true;

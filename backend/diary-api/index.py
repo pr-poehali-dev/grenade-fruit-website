@@ -596,6 +596,7 @@ def handle_add_holiday(body):
     name = (body.get("name") or "").strip()
     holiday_date = (body.get("holiday_date") or "").strip()
     year = body.get("school_year", "2026-2027")
+    cancels_lessons = body.get("cancels_lessons", True)
     if not name or not holiday_date:
         return err("name, holiday_date required")
     conn = get_conn()
@@ -606,8 +607,8 @@ def handle_add_holiday(body):
         conn.close()
         return err("Эта дата уже добавлена")
     cur.execute(
-        f"INSERT INTO {SCHEMA}.holidays (name, holiday_date, school_year) VALUES (%s, %s, %s) RETURNING *",
-        (name, holiday_date, year)
+        f"INSERT INTO {SCHEMA}.holidays (name, holiday_date, school_year, cancels_lessons) VALUES (%s, %s, %s, %s) RETURNING *",
+        (name, holiday_date, year, cancels_lessons)
     )
     row = cur.fetchone()
     conn.commit()
@@ -619,13 +620,14 @@ def handle_update_holiday(body):
     hid = body.get("id")
     name = (body.get("name") or "").strip()
     holiday_date = (body.get("holiday_date") or "").strip()
+    cancels_lessons = body.get("cancels_lessons", True)
     if not hid or not name or not holiday_date:
         return err("id, name, holiday_date required")
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        f"UPDATE {SCHEMA}.holidays SET name = %s, holiday_date = %s WHERE id = %s RETURNING *",
-        (name, holiday_date, hid)
+        f"UPDATE {SCHEMA}.holidays SET name = %s, holiday_date = %s, cancels_lessons = %s WHERE id = %s RETURNING *",
+        (name, holiday_date, cancels_lessons, hid)
     )
     row = cur.fetchone()
     conn.commit()
@@ -720,8 +722,8 @@ def handle_save_module_schedule(body):
         (class_id, module_id)
     )
 
-    # Собираем все праздники и каникулы — исключаем эти дни
-    cur.execute(f"SELECT holiday_date::text FROM {SCHEMA}.holidays WHERE school_year = '2026-2027'")
+    # Собираем каникулы и только те праздники, что отменяют уроки — исключаем эти дни
+    cur.execute(f"SELECT holiday_date::text FROM {SCHEMA}.holidays WHERE school_year = '2026-2027' AND cancels_lessons = true")
     excluded = {r["holiday_date"] for r in cur.fetchall()}
     cur.execute(f"SELECT date_start, date_end FROM {SCHEMA}.breaks WHERE school_year = '2026-2027'")
     for br in cur.fetchall():

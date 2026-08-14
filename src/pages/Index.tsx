@@ -24,7 +24,7 @@ interface ScheduleItem { id: number; day_of_week: string; time_slot: string; sub
 interface Module { id: number; name: string; number: number; date_start: string; date_end: string; school_year: string; }
 interface ScheduleDate { id: number; lesson_date: string; day_of_week: string; time_slot: string; subject: string; teacher_name: string; room: string; sort_order: number; }
 interface Break { id: number; name: string; date_start: string; date_end: string; school_year: string; }
-interface Holiday { id: number; name: string; holiday_date: string; school_year: string; }
+interface Holiday { id: number; name: string; holiday_date: string; school_year: string; cancels_lessons: boolean; }
 interface Trip { id: number; class_id: number; name: string; description: string; trip_date: string; date_end: string; }
 interface Attachment { name: string; url: string; type: "file" | "link"; }
 interface Homework { id: number; subject: string; task: string; due_date: string; class_id: number; attachments?: Attachment[]; }
@@ -795,7 +795,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [savingModuleEdit, setSavingModuleEdit] = useState(false);
   const [newBreak, setNewBreak] = useState({ name: "", date_start: "", date_end: "" });
   const [editingBreak, setEditingBreak] = useState<Break | null>(null);
-  const [newHoliday, setNewHoliday] = useState({ name: "", holiday_date: "" });
+  const [newHoliday, setNewHoliday] = useState({ name: "", holiday_date: "", cancels_lessons: true });
   const [editingHoliday, setEditingHoliday] = useState<Holiday | null>(null);
   const [newTrip, setNewTrip] = useState({ name: "", description: "", trip_date: "", date_end: "" });
   const [editingTrip, setEditingTrip] = useState<Trip | null>(null);
@@ -828,6 +828,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
     while (d <= e) { breakDates.add(d.toISOString().split("T")[0]); d.setDate(d.getDate() + 1); }
   });
   const holidayDates = new Set(holidays.map(h => h.holiday_date));
+  const holidayCancelDates = new Set(holidays.filter(h => h.cancels_lessons).map(h => h.holiday_date));
   const tripDates = new Set<string>();
   trips.forEach(t => {
     const s = new Date(t.trip_date), e = new Date(t.date_end || t.trip_date);
@@ -877,7 +878,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const addHoliday = async (e: React.FormEvent) => {
     e.preventDefault(); setSavingHoliday(true);
     await api("add_holiday", "POST", newHoliday);
-    setNewHoliday({ name: "", holiday_date: "" });
+    setNewHoliday({ name: "", holiday_date: "", cancels_lessons: true });
     setSavingHoliday(false);
     loadBreaksHolidays();
   };
@@ -886,7 +887,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
     e.preventDefault();
     if (!editingHoliday) return;
     setSavingHoliday(true);
-    await api("update_holiday", "POST", { id: editingHoliday.id, name: editingHoliday.name, holiday_date: editingHoliday.holiday_date });
+    await api("update_holiday", "POST", { id: editingHoliday.id, name: editingHoliday.name, holiday_date: editingHoliday.holiday_date, cancels_lessons: editingHoliday.cancels_lessons });
     setSavingHoliday(false);
     setEditingHoliday(null);
     loadBreaksHolidays();
@@ -952,6 +953,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                   const isToday = iso === todayIso;
                   const isBreakDay = breakDates.has(iso);
                   const isHolidayDay = holidayDates.has(iso);
+                  const isHolidayCancels = holidayCancelDates.has(iso);
                   const isTripDay = tripDates.has(iso);
                   const holiday = holidays.find(h => h.holiday_date === iso);
                   const trip = trips.find(t => iso >= t.trip_date && iso <= (t.date_end || t.trip_date));
@@ -997,6 +999,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                           <span>{isBreakDay ? "🏖" : "🎉"}</span>
                           <span className="text-xs font-medium flex-1" style={{ color: isBreakDay ? "#7A5700" : "#2E7D32" }}>
                             {isHolidayDay ? holiday?.name : (breakItem?.name || "Каникулы")}
+                            {isHolidayDay && !isHolidayCancels && <span className="font-normal" style={{ color: "#5B8D63" }}> · уроки по расписанию</span>}
                           </span>
                           {user.role === "teacher" && isHolidayDay && holiday && (
                             <button onClick={() => removeHoliday(holiday.id)} className="w-6 h-6 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
@@ -1023,8 +1026,8 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                         </div>
                       )}
 
-                      {/* Lessons (not shown on full-day breaks) */}
-                      {!isBreakDay && !isHolidayDay && (
+                      {/* Lessons (not shown on full-day breaks or lesson-cancelling holidays) */}
+                      {!isBreakDay && !(isHolidayDay && isHolidayCancels) && (
                         lessonsToShow.length === 0 ? (
                           <p className="text-xs pl-1" style={{ color: "#C4B0B5" }}>Нет уроков</p>
                         ) : (
@@ -1108,13 +1111,14 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                     const active = selectedDate === date;
                     const isBreak = breakDates.has(date);
                     const isHoliday = holidayDates.has(date);
+                    const isHolidayCancels = holidayCancelDates.has(date);
                     const isTrip = tripDates.has(date);
                     const holiday = holidays.find(h => h.holiday_date === date);
                     const trip = trips.find(t => {
                       const s = t.trip_date, e = t.date_end || t.trip_date;
                       return date >= s && date <= e;
                     });
-                    const isSpecial = isBreak || isHoliday;
+                    const isSpecial = isBreak || (isHoliday && isHolidayCancels);
 
                     if (isSpecial) {
                       return (
@@ -1160,6 +1164,12 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                                 <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full mr-1"
                                   style={{ background: "rgba(33,150,243,0.15)", color: "#1565C0" }}>
                                   🚌 {trip.name}
+                                </span>
+                              )}
+                              {isHoliday && !isHolidayCancels && holiday && (
+                                <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full mr-1"
+                                  style={{ background: "rgba(76,175,80,0.15)", color: "#2E7D32" }}>
+                                  🎉 {holiday.name}
                                 </span>
                               )}
                               {lessons.length > 0 ? (
@@ -1448,6 +1458,10 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                         <form onSubmit={saveHolidayEdit} className="p-3 rounded-xl space-y-2" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.25)" }}>
                           <Input value={editingHoliday.name} onChange={e => setEditingHoliday(v => v ? { ...v, name: e.target.value } : v)} placeholder="Название праздника" required />
                           <Field label="Дата"><Input type="date" value={editingHoliday.holiday_date} onChange={e => setEditingHoliday(v => v ? { ...v, holiday_date: e.target.value } : v)} required /></Field>
+                          <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: "#5C0F1E" }}>
+                            <input type="checkbox" checked={editingHoliday.cancels_lessons} onChange={e => setEditingHoliday(v => v ? { ...v, cancels_lessons: e.target.checked } : v)} />
+                            Отменяет уроки в этот день
+                          </label>
                           <div className="flex gap-2">
                             <SaveBtn label={savingHoliday ? "Сохраняем..." : "Сохранить"} loading={savingHoliday} />
                             <button type="button" onClick={() => setEditingHoliday(null)} className="text-xs px-3 py-1.5 rounded-lg" style={{ color: "#9B6A7A" }}>Отмена</button>
@@ -1460,6 +1474,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                             <p className="text-sm font-semibold" style={{ color: "#3D1520" }}>{h.name}</p>
                             <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>
                               {new Date(h.holiday_date).toLocaleDateString("ru-RU", { day: "numeric", month: "long", year: "numeric" })}
+                              {!h.cancels_lessons && <span className="ml-1.5" style={{ color: "#2E7D32" }}>· уроки идут</span>}
                             </p>
                           </div>
                           <button onClick={() => setEditingHoliday(h)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 shrink-0">
@@ -1477,6 +1492,10 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                   <p className="text-xs font-semibold" style={{ color: "#8B1A2F" }}>+ Добавить праздник</p>
                   <Input value={newHoliday.name} onChange={e => setNewHoliday(h => ({ ...h, name: e.target.value }))} placeholder="День Победы" required />
                   <Field label="Дата"><Input type="date" value={newHoliday.holiday_date} onChange={e => setNewHoliday(h => ({ ...h, holiday_date: e.target.value }))} required /></Field>
+                  <label className="flex items-center gap-2 text-xs cursor-pointer" style={{ color: "#5C0F1E" }}>
+                    <input type="checkbox" checked={newHoliday.cancels_lessons} onChange={e => setNewHoliday(h => ({ ...h, cancels_lessons: e.target.checked }))} />
+                    Отменяет уроки в этот день
+                  </label>
                   <SaveBtn label={savingHoliday ? "Сохраняем..." : "Добавить"} loading={savingHoliday} />
                 </form>
               </div>
