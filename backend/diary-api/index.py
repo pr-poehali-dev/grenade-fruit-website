@@ -1001,14 +1001,37 @@ def handle_get_recommendations(params):
 def handle_add_recommendation(body):
     conn = get_conn()
     cur = conn.cursor()
+    teacher_name = body.get("teacher_name", "Учитель")
+    class_id = body.get("class_id")
+
+    if body.get("student_id") == "all":
+        cur.execute(f"SELECT id FROM {SCHEMA}.students WHERE class_id = %s AND is_archived IS NOT TRUE", (class_id,))
+        student_ids = [s["id"] for s in cur.fetchall()]
+        rows = []
+        for sid in student_ids:
+            cur.execute(
+                f"""INSERT INTO {SCHEMA}.recommendations (student_id, subject, text, rec_date, teacher_id, class_id)
+                    VALUES (%s, %s, %s, %s, %s, %s) RETURNING *""",
+                (sid, body.get("subject"), body.get("text"), body.get("rec_date"), body.get("teacher_id"), class_id)
+            )
+            rows.append(cur.fetchone())
+            cur.execute(f"SELECT parent_id FROM {SCHEMA}.parent_students WHERE student_id = %s", (sid,))
+            for p in cur.fetchall():
+                cur.execute(
+                    f"INSERT INTO {SCHEMA}.notifications (parent_id, text, type) VALUES (%s, %s, 'recommendation')",
+                    (p["parent_id"], f"Новая рекомендация по {body.get('subject')} от {teacher_name}")
+                )
+        conn.commit()
+        conn.close()
+        return ok({"ok": True, "count": len(rows)}, 201)
+
     cur.execute(
         f"""INSERT INTO {SCHEMA}.recommendations (student_id, subject, text, rec_date, teacher_id, class_id)
             VALUES (%s, %s, %s, %s, %s, %s) RETURNING *""",
         (body.get("student_id"), body.get("subject"), body.get("text"),
-         body.get("rec_date"), body.get("teacher_id"), body.get("class_id"))
+         body.get("rec_date"), body.get("teacher_id"), class_id)
     )
     row = cur.fetchone()
-    teacher_name = body.get("teacher_name", "Учитель")
     cur.execute(f"SELECT parent_id FROM {SCHEMA}.parent_students WHERE student_id = %s", (body.get("student_id"),))
     for p in cur.fetchall():
         cur.execute(

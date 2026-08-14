@@ -2201,6 +2201,7 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
                 <Field label="Ученик">
                   <Select value={form.student_id} onChange={e => setForm(f => ({ ...f, student_id: e.target.value }))} required>
                     <option value="">Выберите ученика</option>
+                    <option value="all">👥 Весь класс</option>
                     {students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
                   </Select>
                 </Field>
