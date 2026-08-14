@@ -16,7 +16,7 @@ async function api(action: string, method = "GET", body?: object) {
 
 // ─── Types ────────────────────────────────────────────────
 type Role = "teacher" | "parent";
-type Tab = "classes" | "parents" | "schedule" | "homework" | "grades" | "attendance" | "recommendations";
+type Tab = "classes" | "parents" | "schedule" | "homework" | "grades" | "attendance" | "recommendations" | "my_schedule";
 
 interface User { id: number; login: string; role: Role; display_name: string; child?: string; child_id?: number; class_id?: number; email?: string; }
 interface SchoolClass { id: number; name: string; grade: number; letter: string; display_name?: string; }
@@ -472,6 +472,21 @@ export default function Index() {
         {/* Left sidebar: class picker */}
         <aside className="w-44 shrink-0 hidden md:block">
           <div className="sticky top-20 space-y-4">
+            {/* Моё расписание */}
+            {user.role === "teacher" && (
+              <div>
+                <button onClick={() => { setSelectedClass(null); goTab("my_schedule"); }}
+                  className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.02] flex items-center gap-2"
+                  style={{
+                    background: tab === "my_schedule" ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+                    color: tab === "my_schedule" ? "white" : "#3D1520",
+                    border: "1.5px solid rgba(139,26,47,0.12)",
+                    boxShadow: tab === "my_schedule" ? "0 4px 12px rgba(139,26,47,0.25)" : "none",
+                  }}>
+                  <Icon name="CalendarDays" size={15} /> Моё расписание
+                </button>
+              </div>
+            )}
             {/* Классы */}
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider mb-2 px-1" style={{ color: "#9B6A7A" }}>Классы</p>
@@ -480,10 +495,10 @@ export default function Index() {
                   <button key={cl.id} onClick={() => { setSelectedClass(cl); goTab("schedule"); }}
                     className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.02]"
                     style={{
-                      background: selectedClass?.id === cl.id ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
-                      color: selectedClass?.id === cl.id ? "white" : "#3D1520",
+                      background: tab !== "my_schedule" && selectedClass?.id === cl.id ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+                      color: tab !== "my_schedule" && selectedClass?.id === cl.id ? "white" : "#3D1520",
                       border: "1.5px solid rgba(139,26,47,0.12)",
-                      boxShadow: selectedClass?.id === cl.id ? "0 4px 12px rgba(139,26,47,0.25)" : "none",
+                      boxShadow: tab !== "my_schedule" && selectedClass?.id === cl.id ? "0 4px 12px rgba(139,26,47,0.25)" : "none",
                     }}>
                     {cl.display_name || `${cl.grade} класс`}
                   </button>
@@ -498,12 +513,21 @@ export default function Index() {
 
         {/* Main area */}
         <div className="flex-1 min-w-0 pb-24 md:pb-0">
-          {!selectedClass ? (
+          {tab === "my_schedule" && user.role === "teacher" ? (
+            <MyScheduleTab user={user} classes={classes} />
+          ) : !selectedClass ? (
             /* No class selected */
             <div className="flex flex-col items-center justify-center min-h-64 text-center">
               <div className="text-6xl mb-4">🍎</div>
               <h2 className="text-3xl font-bold mb-2" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif" }}>Выберите класс</h2>
               <p className="text-sm" style={{ color: "#9B6A7A" }}>Нажмите на класс в панели слева</p>
+              {user.role === "teacher" && (
+                <button onClick={() => goTab("my_schedule")}
+                  className="mt-4 flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium"
+                  style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
+                  <Icon name="CalendarDays" size={15} /> Моё расписание
+                </button>
+              )}
               {/* Mobile class picker */}
               <div className="mt-6 flex flex-col gap-2 w-full max-w-xs md:hidden">
                 {sortedClasses.map(cl => (
@@ -584,6 +608,10 @@ export default function Index() {
           ))}
           {user.role === "teacher" && (
             <>
+              <button onClick={() => { setSelectedClass(null); goTab("my_schedule"); }} className="flex flex-col items-center gap-0.5 px-1" style={{ color: tab === "my_schedule" ? "#8B1A2F" : "#9B6A7A" }}>
+                <span className="text-xl">🗓</span>
+                <span className="text-xs">Моё</span>
+              </button>
               <button onClick={() => goTab("classes")} className="flex flex-col items-center gap-0.5 px-1" style={{ color: tab === "classes" ? "#8B1A2F" : "#9B6A7A" }}>
                 <span className="text-xl">👥</span>
                 <span className="text-xs">Ученики</span>
@@ -1740,6 +1768,122 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
               </div>
             )}
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── My Schedule Tab (для учителя — все уроки во всех классах + ДЗ) ──
+interface MyLesson { id: number; day_of_week: string; time_slot: string; subject: string; room: string; class_id: number; class_display_name?: string; sort_order: number; }
+function MyScheduleTab({ user, classes }: { user: User; classes: SchoolClass[] }) {
+  const [lessons, setLessons] = useState<MyLesson[]>([]);
+  const [homeworks, setHomeworks] = useState<Homework[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+
+  const teacherName = user.display_name || user.login;
+  const classById = useMemo(() => new Map(classes.map(c => [c.id, c.display_name || c.name])), [classes]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const [lessonsData, homeworkData] = await Promise.all([
+      api(`get_schedule&teacher_name=${encodeURIComponent(teacherName)}`),
+      api(`get_homework&teacher_id=${user.id}`),
+    ]);
+    if (Array.isArray(lessonsData)) setLessons(lessonsData);
+    if (Array.isArray(homeworkData)) setHomeworks(homeworkData);
+    setLoading(false);
+  }, [teacherName, user.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const homeworkBySubjectClass = useMemo(() => {
+    const map = new Map<string, Homework[]>();
+    homeworks.forEach(hw => {
+      const key = `${hw.class_id}|${(hw.subject || "").trim()}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(hw);
+    });
+    return map;
+  }, [homeworks]);
+
+  const exportPdf = () => {
+    setExporting(true);
+    try {
+      const lessonsByDayOfWeek: Record<string, { time_slot: string; subject: string; class_name: string; room: string }[]> = {};
+      lessons.forEach(l => {
+        const day = l.day_of_week;
+        if (!lessonsByDayOfWeek[day]) lessonsByDayOfWeek[day] = [];
+        lessonsByDayOfWeek[day].push({
+          time_slot: l.time_slot,
+          subject: l.subject,
+          class_name: l.class_display_name || classById.get(l.class_id) || "—",
+          room: l.room,
+        });
+      });
+      exportTeacherScheduleToPdf(teacherName, lessonsByDayOfWeek);
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  if (loading) return <Loader />;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+        <SectionTitle emoji="🗓" title="Моё расписание" sub={`${teacherName} · все классы`} />
+        <button onClick={exportPdf} disabled={exporting}
+          className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium transition-all hover:opacity-80 disabled:opacity-50 disabled:cursor-wait shrink-0"
+          style={{ background: "white", color: "#8B1A2F", border: "1.5px solid rgba(139,26,47,0.2)" }}>
+          <Icon name={exporting ? "Loader2" : "FileDown"} size={15} className={exporting ? "animate-spin" : ""} /> Экспорт PDF
+        </button>
+      </div>
+
+      {lessons.length === 0 ? (
+        <Empty text="У вас пока нет уроков в расписании" />
+      ) : (
+        <div className="space-y-4">
+          {DAYS.map(dayName => {
+            const dayLessons = lessons.filter(l => l.day_of_week === dayName).sort((a, b) => a.time_slot.localeCompare(b.time_slot));
+            if (dayLessons.length === 0) return null;
+            return (
+              <div key={dayName}>
+                <div className="px-3 py-1 rounded-xl text-xs font-bold inline-block mb-2" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
+                  {dayName}
+                </div>
+                <div className="space-y-2">
+                  {dayLessons.map(lesson => {
+                    const className = lesson.class_display_name || classById.get(lesson.class_id) || "—";
+                    const hwKey = `${lesson.class_id}|${(lesson.subject || "").trim()}`;
+                    const hwList = homeworkBySubjectClass.get(hwKey) || [];
+                    return (
+                      <div key={lesson.id} className="p-3 rounded-2xl" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.07)" }}>
+                        <div className="flex gap-3 items-center">
+                          <span className="text-xs font-medium px-2 py-1 rounded-lg shrink-0" style={{ background: "#F5E0E5", color: "#8B1A2F", whiteSpace: "nowrap" }}>{lesson.time_slot}</span>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-sm truncate" style={{ color: "#3D1520" }}>{lesson.subject}</p>
+                            <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{className}{lesson.room && ` · 🚪 ${lesson.room}`}</p>
+                          </div>
+                        </div>
+                        {hwList.length > 0 && (
+                          <div className="mt-2 pt-2 space-y-1" style={{ borderTop: "1px solid rgba(139,26,47,0.08)" }}>
+                            {hwList.map(hw => (
+                              <div key={hw.id} className="flex items-start gap-1.5 text-xs">
+                                <Icon name="BookOpen" size={12} className="mt-0.5 shrink-0" style={{ color: "#D4A843" }} />
+                                <span style={{ color: "#3D1520" }}>{hw.task} <span style={{ color: "#9B6A7A" }}>· до {hw.due_date}</span></span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

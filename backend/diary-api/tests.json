@@ -50,6 +50,21 @@
       "expectedStatus": 400,
       "expectedBody": {"error": "user_id required"},
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get schedule by teacher_name",
+      "method": "GET",
+      "path": "/?action=get_schedule&teacher_name=%D0%90%D0%BD%D0%BD%D0%B0%20%D0%A1%D0%B5%D1%80%D0%B3%D0%B5%D0%B5%D0%B2%D0%BD%D0%B0",
+      "expectedStatus": 200,
+      "expectedBody": {"teacher_name": "Анна Сергеевна"},
+      "bodyMatcher": "array_contains"
+    },
+    {
+      "name": "Get homework by teacher_id",
+      "method": "GET",
+      "path": "/?action=get_homework&teacher_id=7",
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
     }
   ]
 }

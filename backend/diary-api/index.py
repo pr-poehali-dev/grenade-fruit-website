@@ -853,9 +853,17 @@ def handle_save_module_schedule(body):
 # ── Homework ──────────────────────────────────────────────
 def handle_get_homework(params):
     class_id = params.get("class_id")
+    teacher_id = params.get("teacher_id")
     conn = get_conn()
     cur = conn.cursor()
-    if class_id:
+    if teacher_id:
+        cur.execute(
+            f"""SELECT h.*, c.display_name as class_display_name FROM {SCHEMA}.homework h
+                LEFT JOIN {SCHEMA}.classes c ON c.id = h.class_id
+                WHERE h.teacher_id = %s ORDER BY h.created_at DESC""",
+            (teacher_id,)
+        )
+    elif class_id:
         cur.execute(
             f"SELECT * FROM {SCHEMA}.homework WHERE class_id = %s ORDER BY created_at DESC",
             (class_id,)
