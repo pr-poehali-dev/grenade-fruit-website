@@ -149,6 +149,28 @@ function LoginScreen({ onLogin }: { onLogin: (u: User) => void }) {
   const [pass, setPass] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+  const [installed, setInstalled] = useState(false);
+
+  useEffect(() => {
+    const isStandalone = window.matchMedia("(display-mode: standalone)").matches || (window.navigator as any).standalone;
+    if (isStandalone) setInstalled(true);
+    const onBeforeInstall = (e: Event) => { e.preventDefault(); setInstallPrompt(e); };
+    const onInstalled = () => { setInstalled(true); setInstallPrompt(null); };
+    window.addEventListener("beforeinstallprompt", onBeforeInstall);
+    window.addEventListener("appinstalled", onInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", onBeforeInstall);
+      window.removeEventListener("appinstalled", onInstalled);
+    };
+  }, []);
+
+  const install = async () => {
+    if (!installPrompt) return;
+    installPrompt.prompt();
+    await installPrompt.userChoice;
+    setInstallPrompt(null);
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -206,6 +228,13 @@ function LoginScreen({ onLogin }: { onLogin: (u: User) => void }) {
             )}
             <SaveBtn label={loading ? "Входим..." : "Войти в дневник"} loading={loading} />
           </form>
+          {installPrompt && !installed && (
+            <button onClick={install} type="button"
+              className="w-full mt-3 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all"
+              style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
+              <Icon name="Download" size={15} /> Установить приложение
+            </button>
+          )}
         </div>
       </div>
     </div>
