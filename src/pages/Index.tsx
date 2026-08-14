@@ -1179,6 +1179,12 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                               {isBreak ? "🏖" : "🎉"} {isHoliday ? holiday?.name : "Каникулы"}
                             </p>
                           </div>
+                          {user.role === "teacher" && isHoliday && holiday && (
+                            <button onClick={() => removeHoliday(holiday.id)}
+                              className="flex items-center gap-1 px-2 h-6 rounded-lg hover:bg-red-50 shrink-0 text-xs font-medium text-red-400">
+                              <Icon name="X" size={12} /> Отменить
+                            </button>
+                          )}
                         </div>
                       );
                     }
