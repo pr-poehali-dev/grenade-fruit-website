@@ -2219,7 +2219,23 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
 }
 
 // ─── Parents Tab ──────────────────────────────────────────
-interface Parent { id: number; login: string; display_name: string; child: string; child_id: number; }
+interface Parent { id: number; login: string; display_name: string; child: string; child_id: number; last_login_at: string | null; }
+
+function formatLastLogin(iso: string | null): string {
+  if (!iso) return "Ещё не заходил(а)";
+  const d = new Date(iso.endsWith("Z") ? iso : iso + "Z");
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  const diffMin = Math.floor(diffMs / 60000);
+  if (diffMin < 1) return "Только что";
+  if (diffMin < 60) return `${diffMin} мин назад`;
+  const diffH = Math.floor(diffMin / 60);
+  if (diffH < 24) return `${diffH} ч назад`;
+  const diffD = Math.floor(diffH / 24);
+  if (diffD === 1) return "Вчера";
+  if (diffD < 7) return `${diffD} дн назад`;
+  return d.toLocaleDateString("ru-RU", { day: "numeric", month: "short", ...(d.getFullYear() !== now.getFullYear() ? { year: "numeric" } : {}) });
+}
 
 function ParentsTab({ cls }: { cls: SchoolClass }) {
   const [parents, setParents] = useState<Parent[]>([]);
@@ -2274,6 +2290,10 @@ function ParentsTab({ cls }: { cls: SchoolClass }) {
                 <p className="font-medium text-sm" style={{ color: "#3D1520" }}>{p.display_name || p.login}</p>
                 <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>
                   Логин: <b style={{ color: "#8B1A2F" }}>{p.login}</b> · Ученик: {p.child}
+                </p>
+                <p className="text-xs mt-1 flex items-center gap-1" style={{ color: p.last_login_at ? "#4A8B5C" : "#B08A94" }}>
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: p.last_login_at ? "#4A8B5C" : "#D9C3C9" }} />
+                  {formatLastLogin(p.last_login_at)}
                 </p>
               </div>
               <button onClick={() => removeParent(p.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">

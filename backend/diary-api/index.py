@@ -188,9 +188,12 @@ def handle_login(body):
         (login, password)
     )
     user = cur.fetchone()
-    conn.close()
     if not user:
+        conn.close()
         return err("Неверный логин или пароль", 401)
+    cur.execute(f"UPDATE {SCHEMA}.users SET last_login_at = NOW() WHERE id = %s", (user["id"],))
+    conn.commit()
+    conn.close()
     return ok({"id": user["id"], "login": user["login"], "role": user["role"],
                "display_name": user["display_name"], "child": user["child"],
                "child_id": user["child_id"], "class_id": user["class_id"], "email": user["email"]})
@@ -264,7 +267,7 @@ def handle_get_parents(params):
     cur = conn.cursor()
     if class_id:
         cur.execute(
-            f"""SELECT u.id, u.login, u.display_name, s.full_name as child, s.id as child_id
+            f"""SELECT u.id, u.login, u.display_name, u.last_login_at, s.full_name as child, s.id as child_id
                 FROM {SCHEMA}.users u
                 JOIN {SCHEMA}.parent_students ps ON ps.parent_id = u.id
                 JOIN {SCHEMA}.students s ON s.id = ps.student_id
@@ -274,7 +277,7 @@ def handle_get_parents(params):
         )
     else:
         cur.execute(
-            f"""SELECT u.id, u.login, u.display_name, s.full_name as child, s.id as child_id
+            f"""SELECT u.id, u.login, u.display_name, u.last_login_at, s.full_name as child, s.id as child_id
                 FROM {SCHEMA}.users u
                 JOIN {SCHEMA}.parent_students ps ON ps.parent_id = u.id
                 JOIN {SCHEMA}.students s ON s.id = ps.student_id
