@@ -353,6 +353,7 @@ def handle_get_schedule(params):
             f"""SELECT s.*, c.display_name as class_display_name FROM {SCHEMA}.schedule s
                 LEFT JOIN {SCHEMA}.classes c ON c.id = s.class_id
                 WHERE TRIM(s.teacher_name) = TRIM(%s) AND s.active = true
+                  AND (c.is_active IS NULL OR c.is_active = true)
                 ORDER BY s.day_of_week, s.sort_order""",
             (teacher_name,)
         )
@@ -686,6 +687,7 @@ def handle_get_schedule_dates(params):
                 JOIN {SCHEMA}.modules m ON m.id = sd.module_id
                 LEFT JOIN {SCHEMA}.classes c ON c.id = sd.class_id
                 WHERE TRIM(sd.teacher_name) = TRIM(%s) AND m.school_year = %s
+                  AND (c.is_active IS NULL OR c.is_active = true)
                 ORDER BY sd.lesson_date, sd.sort_order""",
             (teacher_name, school_year or "2026-2027")
         )
