@@ -13,16 +13,14 @@ interface ExportClassInfo {
   displayName: string;
 }
 
-let fontsRegistered = false;
-
 function registerFonts(doc: jsPDF) {
-  if (!fontsRegistered) {
-    doc.addFileToVFS("Roboto-Regular.ttf", ROBOTO_REGULAR_BASE64);
-    doc.addFont("Roboto-Regular.ttf", "Roboto", "normal");
-    doc.addFileToVFS("Roboto-Bold.ttf", ROBOTO_BOLD_BASE64);
-    doc.addFont("Roboto-Bold.ttf", "Roboto", "bold");
-    fontsRegistered = true;
-  }
+  // Шрифты регистрируются заново для каждого нового документа jsPDF —
+  // каждый вызов new jsPDF() создаёт независимый VFS, поэтому глобальный
+  // флаг "уже зарегистрировано" ломает кириллицу при повторном экспорте.
+  doc.addFileToVFS("Roboto-Regular.ttf", ROBOTO_REGULAR_BASE64);
+  doc.addFont("Roboto-Regular.ttf", "Roboto", "normal");
+  doc.addFileToVFS("Roboto-Bold.ttf", ROBOTO_BOLD_BASE64);
+  doc.addFont("Roboto-Bold.ttf", "Roboto", "bold");
   doc.setFont("Roboto", "normal");
 }
 
