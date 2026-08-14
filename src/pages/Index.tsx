@@ -16,7 +16,7 @@ async function api(action: string, method = "GET", body?: object) {
 
 // ─── Types ────────────────────────────────────────────────
 type Role = "teacher" | "parent";
-type Tab = "classes" | "parents" | "schedule" | "homework" | "grades" | "attendance" | "recommendations" | "my_schedule";
+type Tab = "classes" | "parents" | "schedule" | "homework" | "grades" | "attendance" | "recommendations" | "my_schedule" | "extended_day";
 
 interface User { id: number; login: string; role: Role; display_name: string; child?: string; child_id?: number; class_id?: number; email?: string; }
 interface SchoolClass { id: number; name: string; grade: number; letter: string; display_name?: string; }
@@ -495,14 +495,26 @@ export default function Index() {
                   <button key={cl.id} onClick={() => { setSelectedClass(cl); goTab("schedule"); }}
                     className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.02]"
                     style={{
-                      background: tab !== "my_schedule" && selectedClass?.id === cl.id ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
-                      color: tab !== "my_schedule" && selectedClass?.id === cl.id ? "white" : "#3D1520",
+                      background: tab !== "my_schedule" && tab !== "extended_day" && selectedClass?.id === cl.id ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+                      color: tab !== "my_schedule" && tab !== "extended_day" && selectedClass?.id === cl.id ? "white" : "#3D1520",
                       border: "1.5px solid rgba(139,26,47,0.12)",
-                      boxShadow: tab !== "my_schedule" && selectedClass?.id === cl.id ? "0 4px 12px rgba(139,26,47,0.25)" : "none",
+                      boxShadow: tab !== "my_schedule" && tab !== "extended_day" && selectedClass?.id === cl.id ? "0 4px 12px rgba(139,26,47,0.25)" : "none",
                     }}>
                     {cl.display_name || `${cl.grade} класс`}
                   </button>
                 ))}
+                {user.role === "teacher" && (
+                  <button onClick={() => { setSelectedClass(null); goTab("extended_day"); }}
+                    className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.02] flex items-center gap-2"
+                    style={{
+                      background: tab === "extended_day" ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+                      color: tab === "extended_day" ? "white" : "#3D1520",
+                      border: "1.5px solid rgba(139,26,47,0.12)",
+                      boxShadow: tab === "extended_day" ? "0 4px 12px rgba(139,26,47,0.25)" : "none",
+                    }}>
+                    <Icon name="Sun" size={15} /> Продлёнка
+                  </button>
+                )}
               </div>
             </div>
             {/* Гранат */}
@@ -515,6 +527,8 @@ export default function Index() {
         <div className="flex-1 min-w-0 pb-24 md:pb-0">
           {tab === "my_schedule" && user.role === "teacher" ? (
             <MyScheduleTab user={user} classes={classes} />
+          ) : tab === "extended_day" && user.role === "teacher" ? (
+            <ExtendedDayTab classes={classes} />
           ) : !selectedClass ? (
             /* No class selected */
             <div className="flex flex-col items-center justify-center min-h-64 text-center">
@@ -619,6 +633,10 @@ export default function Index() {
               <button onClick={() => goTab("parents")} className="flex flex-col items-center gap-0.5 px-1" style={{ color: tab === "parents" ? "#8B1A2F" : "#9B6A7A" }}>
                 <span className="text-xl">👨‍👩‍👧</span>
                 <span className="text-xs">Родители</span>
+              </button>
+              <button onClick={() => { setSelectedClass(null); goTab("extended_day"); }} className="flex flex-col items-center gap-0.5 px-1" style={{ color: tab === "extended_day" ? "#8B1A2F" : "#9B6A7A" }}>
+                <span className="text-xl">☀️</span>
+                <span className="text-xs">Продлёнка</span>
               </button>
             </>
           )}
@@ -1899,6 +1917,161 @@ function MyScheduleTab({ user, classes }: { user: User; classes: SchoolClass[] }
             );
           })}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Extended Day Tab (Продлёнка) ───────────────────────────
+interface ExtendedDayStudent { extended_id: number; student_id: number; full_name: string; class_id: number; class_display_name?: string; class_name?: string; grade: number; letter: string; homework: Homework[]; }
+function ExtendedDayTab({ classes }: { classes: SchoolClass[] }) {
+  const [students, setStudents] = useState<ExtendedDayStudent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [pickerClassId, setPickerClassId] = useState<number | null>(null);
+  const [classStudents, setClassStudents] = useState<Student[]>([]);
+  const [loadingClassStudents, setLoadingClassStudents] = useState(false);
+  const [saving, setSaving] = useState<number | null>(null);
+
+  const sortedClasses = useMemo(() => [...classes].sort((a, b) => a.grade - b.grade), [classes]);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const data = await api("get_extended_day_students");
+    if (Array.isArray(data)) setStudents(data);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const groupedByClass = useMemo(() => {
+    const map = new Map<number, ExtendedDayStudent[]>();
+    students.forEach(s => {
+      if (!map.has(s.class_id)) map.set(s.class_id, []);
+      map.get(s.class_id)!.push(s);
+    });
+    return map;
+  }, [students]);
+
+  const classById = useMemo(() => new Map(classes.map(c => [c.id, c.display_name || `${c.grade} класс`])), [classes]);
+  const groupedClassIds = useMemo(() => [...groupedByClass.keys()].sort((a, b) => {
+    const ca = classes.find(c => c.id === a)?.grade || 0;
+    const cb = classes.find(c => c.id === b)?.grade || 0;
+    return ca - cb;
+  }), [groupedByClass, classes]);
+
+  const addedStudentIds = useMemo(() => new Set(students.map(s => s.student_id)), [students]);
+
+  const openAdd = () => { setShowAdd(true); setPickerClassId(null); setClassStudents([]); };
+
+  const pickClass = async (classId: number) => {
+    setPickerClassId(classId);
+    setLoadingClassStudents(true);
+    const data = await api(`get_students&class_id=${classId}`);
+    if (Array.isArray(data)) setClassStudents(data);
+    setLoadingClassStudents(false);
+  };
+
+  const addStudent = async (studentId: number) => {
+    setSaving(studentId);
+    await api("add_extended_day_student", "POST", { student_id: studentId });
+    setSaving(null);
+    load();
+  };
+
+  const removeStudent = async (studentId: number) => {
+    if (!confirm("Убрать ученика из продлёнки?")) return;
+    await api("remove_extended_day_student", "POST", { student_id: studentId });
+    load();
+  };
+
+  if (loading) return <Loader />;
+
+  return (
+    <div>
+      <SectionTitle emoji="☀️" title="Продлёнка" sub={`${students.length} учеников · из всех классов`} />
+
+      {students.length === 0 ? (
+        <Empty text="Пока никого не добавили в продлёнку" />
+      ) : (
+        <div className="space-y-5">
+          {groupedClassIds.map(classId => {
+            const group = groupedByClass.get(classId) || [];
+            return (
+              <div key={classId}>
+                <div className="px-3 py-1 rounded-xl text-xs font-bold inline-block mb-2" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
+                  {classById.get(classId) || group[0]?.class_display_name || group[0]?.class_name || "—"}
+                </div>
+                <div className="space-y-2">
+                  {group.map(s => (
+                    <div key={s.extended_id} className="p-3 rounded-2xl" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.07)" }}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0" style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)", color: "white" }}>
+                          {s.full_name.charAt(0)}
+                        </div>
+                        <p className="font-medium text-sm flex-1" style={{ color: "#3D1520" }}>{s.full_name}</p>
+                        <button onClick={() => removeStudent(s.student_id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
+                          <Icon name="Trash2" size={13} className="text-red-400" />
+                        </button>
+                      </div>
+                      {s.homework.length > 0 && (
+                        <div className="mt-2 pt-2 space-y-1" style={{ borderTop: "1px solid rgba(139,26,47,0.08)" }}>
+                          {s.homework.map(hw => (
+                            <div key={hw.id} className="flex items-start gap-1.5 text-xs">
+                              <Icon name="BookOpen" size={12} className="mt-0.5 shrink-0" style={{ color: "#D4A843" }} />
+                              <span style={{ color: "#3D1520" }}><b>{hw.subject}</b>: {hw.task} <span style={{ color: "#9B6A7A" }}>· до {hw.due_date}</span></span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <AddBtn label="Добавить ученика в продлёнку" onClick={openAdd} />
+
+      {showAdd && (
+        <Modal title="Добавить в продлёнку" onClose={() => setShowAdd(false)}>
+          {!pickerClassId ? (
+            <div className="space-y-1">
+              <p className="text-xs mb-2" style={{ color: "#9B6A7A" }}>Выберите класс</p>
+              {sortedClasses.map(cl => (
+                <button key={cl.id} onClick={() => pickClass(cl.id)}
+                  className="w-full text-left px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-pink-50 transition-colors"
+                  style={{ color: "#3D1520", border: "1.5px solid rgba(139,26,47,0.1)" }}>
+                  {cl.display_name || `${cl.grade} класс`}
+                </button>
+              ))}
+            </div>
+          ) : loadingClassStudents ? (
+            <Loader />
+          ) : (
+            <div className="space-y-2">
+              <button onClick={() => setPickerClassId(null)} className="flex items-center gap-1 text-xs mb-2" style={{ color: "#8B1A2F" }}>
+                <Icon name="ChevronLeft" size={14} /> Назад к классам
+              </button>
+              {classStudents.length === 0 && <Empty text="В этом классе нет учеников" />}
+              {classStudents.map(s => {
+                const already = addedStudentIds.has(s.id);
+                return (
+                  <div key={s.id} className="flex items-center gap-3 px-4 py-2.5 rounded-xl" style={{ border: "1.5px solid rgba(139,26,47,0.1)" }}>
+                    <p className="text-sm flex-1" style={{ color: "#3D1520" }}>{s.full_name}</p>
+                    <button onClick={() => addStudent(s.id)} disabled={already || saving === s.id}
+                      className="px-3 py-1.5 rounded-lg text-xs font-medium disabled:opacity-50"
+                      style={{ background: already ? "#F5E0E5" : "linear-gradient(135deg, #5C0F1E, #8B1A2F)", color: already ? "#8B1A2F" : "white" }}>
+                      {already ? "Добавлен" : saving === s.id ? "..." : "Добавить"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Modal>
       )}
     </div>
   );

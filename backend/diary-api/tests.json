@@ -73,6 +73,22 @@
       "expectedStatus": 200,
       "expectedBody": {"teacher_name": "Александр Валерьевич"},
       "bodyMatcher": "array_contains"
+    },
+    {
+      "name": "Get extended day students",
+      "method": "GET",
+      "path": "/?action=get_extended_day_students",
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Add extended day student missing id",
+      "method": "POST",
+      "path": "/?action=add_extended_day_student",
+      "body": {},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "student_id required"},
+      "bodyMatcher": "partial"
     }
   ]
 }

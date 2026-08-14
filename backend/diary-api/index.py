@@ -149,6 +149,12 @@ def handler(event: dict, context) -> dict:
         return handle_update_email(body)
     if action == "run_daily_digest":
         return handle_run_daily_digest()
+    if action == "get_extended_day_students":
+        return handle_get_extended_day_students()
+    if action == "add_extended_day_student":
+        return handle_add_extended_day_student(body)
+    if action == "remove_extended_day_student":
+        return handle_remove_extended_day_student(body)
 
     # Healthcheck
     if method == "GET" and not action:
@@ -1267,3 +1273,72 @@ def handle_run_daily_digest():
     conn.commit()
     conn.close()
     return ok({"ok": True, "sent": sent, "errors": errors})
+
+
+# ── Extended day (Продлёнка) ─────────────────────────────
+def handle_get_extended_day_students():
+    """Список учеников, добавленных в продлёнку, сгруппированных по классам,
+    вместе с их актуальными домашними заданиями."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"""SELECT eds.id as extended_id, s.id as student_id, s.full_name,
+                   s.class_id, c.display_name as class_display_name, c.name as class_name,
+                   c.grade, c.letter
+            FROM {SCHEMA}.extended_day_students eds
+            JOIN {SCHEMA}.students s ON s.id = eds.student_id
+            LEFT JOIN {SCHEMA}.classes c ON c.id = s.class_id
+            WHERE s.is_archived = false
+            ORDER BY c.grade, c.letter, s.full_name"""
+    )
+    students = list(cur.fetchall())
+
+    class_ids = list({s["class_id"] for s in students if s["class_id"]})
+    homework_by_class = {}
+    if class_ids:
+        cur.execute(
+            f"""SELECT * FROM {SCHEMA}.homework WHERE class_id = ANY(%s)
+                ORDER BY due_date, created_at DESC""",
+            (class_ids,)
+        )
+        for hw in cur.fetchall():
+            homework_by_class.setdefault(hw["class_id"], []).append(dict(hw))
+
+    conn.close()
+    result = []
+    for s in students:
+        item = dict(s)
+        item["homework"] = homework_by_class.get(s["class_id"], [])
+        result.append(item)
+    return ok(result)
+
+
+def handle_add_extended_day_student(body):
+    student_id = body.get("student_id")
+    if not student_id:
+        return err("student_id required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"""INSERT INTO {SCHEMA}.extended_day_students (student_id) VALUES (%s)
+            ON CONFLICT (student_id) DO NOTHING RETURNING *""",
+        (student_id,)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return ok({"ok": True, "already_added": True})
+    return ok(dict(row), 201)
+
+
+def handle_remove_extended_day_student(body):
+    student_id = body.get("student_id")
+    if not student_id:
+        return err("student_id required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"DELETE FROM {SCHEMA}.extended_day_students WHERE student_id = %s", (student_id,))
+    conn.commit()
+    conn.close()
+    return ok({"ok": True})
