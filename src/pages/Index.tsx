@@ -2432,25 +2432,15 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
     ? Math.round(moduleGrades.reduce((sum, g) => sum + gradeToPercent(g.grade, g.grade_max), 0) / moduleGrades.length)
     : null;
 
-  // Итоговые результаты по предметам за модуль: есть итоговая отметка → процент,
-  // нет вообще ни одной отметки по предмету → "Программа усвоена" без процента
-  type FinalSubjectEntry = { subject: string; grade?: Grade };
+  // Итоговые отметки по предметам за модуль — только предметы, по которым есть итоговая отметка
   const finalByStudent = useMemo(() => {
-    const map = new Map<number, FinalSubjectEntry[]>();
-    const subjectsList = getSubjectsByGrade(cls.grade);
-    const studentIds = user.role === "teacher" ? students.map(s => s.id) : (user.child_id ? [user.child_id] : []);
-    studentIds.forEach(sid => {
-      const items: FinalSubjectEntry[] = [];
-      subjectsList.forEach(subject => {
-        const finalGrade = moduleGrades.find(g => g.student_id === sid && g.subject === subject && g.is_final);
-        const anyGrade = moduleGrades.some(g => g.student_id === sid && g.subject === subject);
-        if (finalGrade) items.push({ subject, grade: finalGrade });
-        else if (!anyGrade) items.push({ subject });
-      });
-      if (items.length) map.set(sid, items);
+    const map = new Map<number, Grade[]>();
+    moduleGrades.filter(g => g.is_final).forEach(g => {
+      if (!map.has(g.student_id)) map.set(g.student_id, []);
+      map.get(g.student_id)!.push(g);
     });
     return map;
-  }, [moduleGrades, students, user.role, user.child_id, cls.grade]);
+  }, [moduleGrades]);
 
   return (
     <div>
@@ -2613,27 +2603,19 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
             )}
             {finalByStudent.size > 0 && (
               <div className="space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#9B6A7A" }}>Итоговые результаты по предметам</p>
-                {[...finalByStudent.entries()].map(([studentId, items]) => {
-                  const studentName = user.role === "parent" ? user.child : (students.find(s => s.id === studentId)?.full_name || "");
+                <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#9B6A7A" }}>Итоговые отметки по предметам</p>
+                {[...finalByStudent.entries()].map(([studentId, recs]) => {
+                  const studentName = user.role === "parent" ? user.child : (students.find(s => s.id === studentId)?.full_name || recs[0]?.student_name);
                   return (
                     <div key={studentId} className="p-3 rounded-2xl" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)" }}>
                       {user.role === "teacher" && <p className="font-medium text-sm mb-2" style={{ color: "#3D1520" }}>{studentName}</p>}
                       <div className="space-y-1.5">
-                        {items.map(({ subject, grade: g }) => {
-                          if (!g) {
-                            return (
-                              <div key={subject} className="flex items-center gap-2 text-sm">
-                                <span className="flex-1" style={{ color: "#3D1520" }}>{subject}</span>
-                                <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>Программа усвоена</span>
-                              </div>
-                            );
-                          }
+                        {recs.map(g => {
                           const pct = gradeToPercent(g.grade, g.grade_max);
                           const lvl = percentLevel(pct);
                           return (
-                            <div key={subject} className="flex items-center gap-2 text-sm">
-                              <span className="flex-1" style={{ color: "#3D1520" }}>{subject}</span>
+                            <div key={g.id} className="flex items-center gap-2 text-sm">
+                              <span className="flex-1" style={{ color: "#3D1520" }}>{g.subject}</span>
                               <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ background: lvl.bg, color: lvl.color }}>{lvl.label}</span>
                               <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{pct}%</span>
                             </div>
