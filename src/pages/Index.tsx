@@ -153,6 +153,7 @@ function LoginScreen({ onLogin }: { onLogin: (u: User) => void }) {
   const [installed, setInstalled] = useState(false);
   const [isIos, setIsIos] = useState(false);
   const [showIosHint, setShowIosHint] = useState(false);
+  const [showAndroidHint, setShowAndroidHint] = useState(false);
 
   useEffect(() => {
     const isStandalone = window.matchMedia("(display-mode: standalone)").matches || (window.navigator as any).standalone;
@@ -170,7 +171,7 @@ function LoginScreen({ onLogin }: { onLogin: (u: User) => void }) {
   }, []);
 
   const install = async () => {
-    if (!installPrompt) return;
+    if (!installPrompt) { setShowAndroidHint(true); return; }
     installPrompt.prompt();
     await installPrompt.userChoice;
     setInstallPrompt(null);
@@ -232,12 +233,25 @@ function LoginScreen({ onLogin }: { onLogin: (u: User) => void }) {
             )}
             <SaveBtn label={loading ? "Входим..." : "Войти в дневник"} loading={loading} />
           </form>
-          {installPrompt && !installed && (
-            <button onClick={install} type="button"
-              className="w-full mt-3 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all"
-              style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
-              <Icon name="Download" size={15} /> Установить приложение
-            </button>
+          {!isIos && !installed && (
+            <>
+              <button onClick={install} type="button"
+                className="w-full mt-3 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition-all"
+                style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
+                <Icon name="Download" size={15} /> Установить приложение
+              </button>
+              {showAndroidHint && (
+                <div className="mt-3 p-3.5 rounded-xl text-xs leading-relaxed" style={{ background: "#FDF6EE", border: "1px solid rgba(139,26,47,0.15)", color: "#5C0F1E" }}>
+                  <p className="font-medium mb-2" style={{ color: "#8B1A2F" }}>Установка приложения:</p>
+                  <ol className="space-y-1.5">
+                    <li className="flex items-center gap-1.5">
+                      1. Откройте меню <Icon name="MoreVertical" size={13} /> в браузере
+                    </li>
+                    <li>2. Выберите «Установить приложение» или «Добавить на главный экран»</li>
+                  </ol>
+                </div>
+              )}
+            </>
           )}
           {isIos && !installed && (
             <>
