@@ -113,6 +113,12 @@ def handler(event: dict, context) -> dict:
         return handle_get_schedule_dates(params)
     if action == "save_module_schedule":
         return handle_save_module_schedule(body)
+    if action == "add_schedule_date":
+        return handle_add_schedule_date(body)
+    if action == "update_schedule_date":
+        return handle_update_schedule_date(body)
+    if action == "delete_schedule_date":
+        return handle_delete_schedule_date(body)
     if action == "get_homework":
         return handle_get_homework(params)
     if action == "add_homework":
@@ -679,6 +685,70 @@ def handle_get_schedule_dates(params):
     rows = cur.fetchall()
     conn.close()
     return ok(list(rows))
+
+
+def handle_add_schedule_date(body):
+    """Добавляет один урок на конкретную дату (в рамках модуля или без него)."""
+    class_id = body.get("class_id")
+    lesson_date = body.get("lesson_date")
+    time_slot = (body.get("time_slot") or "").strip()
+    subject = (body.get("subject") or "").strip()
+    if not class_id or not lesson_date or not time_slot or not subject:
+        return err("class_id, lesson_date, time_slot, subject required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"SELECT COALESCE(MAX(sort_order), -1) + 1 as next_order FROM {SCHEMA}.schedule_dates WHERE class_id = %s AND lesson_date = %s",
+        (class_id, lesson_date)
+    )
+    next_order = cur.fetchone()["next_order"]
+    cur.execute(
+        f"""INSERT INTO {SCHEMA}.schedule_dates
+            (class_id, module_id, lesson_date, day_of_week, time_slot, subject, teacher_name, room, sort_order)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s) RETURNING *""",
+        (class_id, body.get("module_id"), lesson_date, body.get("day_of_week", ""),
+         time_slot, subject, body.get("teacher_name", ""), body.get("room", ""), next_order)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    return ok(dict(row), 201)
+
+
+def handle_update_schedule_date(body):
+    """Редактирует один урок конкретной даты."""
+    sid = body.get("id")
+    time_slot = (body.get("time_slot") or "").strip()
+    subject = (body.get("subject") or "").strip()
+    if not sid or not time_slot or not subject:
+        return err("id, time_slot, subject required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"""UPDATE {SCHEMA}.schedule_dates SET
+            time_slot = %s, subject = %s, teacher_name = %s, room = %s
+            WHERE id = %s RETURNING *""",
+        (time_slot, subject, body.get("teacher_name", ""), body.get("room", ""), sid)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return err("Не найдено", 404)
+    return ok(dict(row))
+
+
+def handle_delete_schedule_date(body):
+    """Удаляет один урок конкретной даты."""
+    sid = body.get("id")
+    if not sid:
+        return err("id required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"DELETE FROM {SCHEMA}.schedule_dates WHERE id = %s", (sid,))
+    conn.commit()
+    conn.close()
+    return ok({"ok": True})
 
 
 def handle_save_module_schedule(body):

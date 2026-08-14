@@ -607,6 +607,12 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [showModuleForm, setShowModuleForm] = useState(false);
   const [savingModule, setSavingModule] = useState(false);
 
+  // Single day-lesson edit/add (module calendar view)
+  const [showDateLessonForm, setShowDateLessonForm] = useState(false);
+  const [editingDateLesson, setEditingDateLesson] = useState<ScheduleDate | null>(null);
+  const [dateLessonForm, setDateLessonForm] = useState({ lesson_date: "", time_slot: "", subject: "", teacher_name: "", room: "" });
+  const [savingDateLesson, setSavingDateLesson] = useState(false);
+
   // Weekly template for module schedule builder
   const emptySlot = (): LessonSlot => ({ time_slot: "", subject: "", teacher_name: "", room: "" });
   const [weeklyTemplate, setWeeklyTemplate] = useState<Record<string, LessonSlot[]>>(
@@ -703,6 +709,41 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const delItem = async (id: number) => {
     await api("delete_schedule", "POST", { id });
     loadWeek();
+  };
+
+  // Single date-lesson helpers (module calendar view)
+  const openAddDateLesson = (date: string) => {
+    setEditingDateLesson(null);
+    setDateLessonForm({ lesson_date: date, time_slot: "", subject: "", teacher_name: "", room: "" });
+    setShowDateLessonForm(true);
+  };
+
+  const openEditDateLesson = (lesson: ScheduleDate) => {
+    setEditingDateLesson(lesson);
+    setDateLessonForm({ lesson_date: lesson.lesson_date, time_slot: lesson.time_slot, subject: lesson.subject, teacher_name: lesson.teacher_name, room: lesson.room });
+    setShowDateLessonForm(true);
+  };
+
+  const saveDateLesson = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSavingDateLesson(true);
+    if (editingDateLesson) {
+      await api("update_schedule_date", "POST", { id: editingDateLesson.id, ...dateLessonForm });
+    } else {
+      await api("add_schedule_date", "POST", { ...dateLessonForm, class_id: cls.id, module_id: selectedModule?.id });
+    }
+    setSavingDateLesson(false);
+    setShowDateLessonForm(false);
+    setEditingDateLesson(null);
+    if (selectedModule) loadDates(selectedModule.id);
+    loadWeekDates();
+  };
+
+  const deleteDateLesson = async (id: number) => {
+    if (!confirm("Удалить этот урок?")) return;
+    await api("delete_schedule_date", "POST", { id });
+    if (selectedModule) loadDates(selectedModule.id);
+    loadWeekDates();
   };
 
   // Module calendar helpers
@@ -1191,12 +1232,22 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                             )}
                           </button>
                           {user.role === "teacher" && (
-                            <button
-                              onClick={() => { setEditing(null); setForm({ day_of_week: formatDay(date), time_slot: "09:00–09:40", subject: "", teacher_name: "", room: "", event_type: "trip", event_name: "", event_description: "", event_date: date }); setShowAdd(true); }}
-                              className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 mr-3 transition-colors"
-                              style={{ background: isToday(date) ? "rgba(255,255,255,0.15)" : "#F5E0E5" }}>
-                              <Icon name="Plus" size={14} style={{ color: isToday(date) ? "white" : "#8B1A2F" }} />
-                            </button>
+                            <div className="flex items-center gap-1 mr-3 shrink-0">
+                              <button
+                                onClick={() => openAddDateLesson(date)}
+                                title="Добавить урок на этот день"
+                                className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+                                style={{ background: isToday(date) ? "rgba(255,255,255,0.15)" : "#F5E0E5" }}>
+                                <Icon name="CalendarPlus" size={14} style={{ color: isToday(date) ? "white" : "#8B1A2F" }} />
+                              </button>
+                              <button
+                                onClick={() => { setEditing(null); setForm({ day_of_week: formatDay(date), time_slot: "09:00–09:40", subject: "", teacher_name: "", room: "", event_type: "trip", event_name: "", event_description: "", event_date: date }); setShowAdd(true); }}
+                                title="Добавить выезд или праздник"
+                                className="w-8 h-8 rounded-lg flex items-center justify-center transition-colors"
+                                style={{ background: isToday(date) ? "rgba(255,255,255,0.15)" : "#F5E0E5" }}>
+                                <Icon name="Plus" size={14} style={{ color: isToday(date) ? "white" : "#8B1A2F" }} />
+                              </button>
+                            </div>
                           )}
                         </div>
 
@@ -1214,6 +1265,16 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                                 {l.time_slot === "13:40–14:20" && (
                                   <span className="text-xs px-2 py-0.5 rounded-lg shrink-0" style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>🚪 {l.room}</span>
                                 )}
+                                {user.role === "teacher" && (
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button onClick={() => openEditDateLesson(l)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100">
+                                      <Icon name="Pencil" size={13} style={{ color: "#8B1A2F" }} />
+                                    </button>
+                                    <button onClick={() => deleteDateLesson(l.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50">
+                                      <Icon name="Trash2" size={13} className="text-red-400" />
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                             ))}
                           </div>
@@ -1226,6 +1287,37 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
             </>
           )}
         </>
+      )}
+
+      {/* ── MODAL: edit/add single lesson for a specific date (module calendar) ── */}
+      {showDateLessonForm && (
+        <Modal title={editingDateLesson ? "Редактировать урок" : "Добавить урок"} onClose={() => setShowDateLessonForm(false)}>
+          <form onSubmit={saveDateLesson} className="space-y-3">
+            <Field label="Дата">
+              <Input type="date" value={dateLessonForm.lesson_date} onChange={e => setDateLessonForm(f => ({ ...f, lesson_date: e.target.value }))} required disabled={!!editingDateLesson} />
+            </Field>
+            <Field label="Время">
+              <Select value={dateLessonForm.time_slot} onChange={e => setDateLessonForm(f => ({ ...f, time_slot: e.target.value }))} required>
+                <option value="">— Выберите время —</option>
+                {["09:00–09:40","10:00–10:40","10:50–11:30","12:00–12:40","12:50–13:30","13:40–14:20","15:30–16:30"].map(t => <option key={t} value={t}>{t}</option>)}
+              </Select>
+            </Field>
+            <Field label="Предмет">
+              <Select value={dateLessonForm.subject} onChange={e => setDateLessonForm(f => ({ ...f, subject: e.target.value }))} required>
+                <option value="">— Выберите предмет —</option>
+                {getSubjectsByGrade(cls.grade).map(s => <option key={s} value={s}>{s}</option>)}
+              </Select>
+            </Field>
+            <Field label="Учитель">
+              <Select value={dateLessonForm.teacher_name} onChange={e => setDateLessonForm(f => ({ ...f, teacher_name: e.target.value }))} required>
+                <option value="">— Выберите педагога —</option>
+                {TEACHERS.map(t => <option key={t} value={t}>{t}</option>)}
+              </Select>
+            </Field>
+            <Field label="Кабинет"><Input value={dateLessonForm.room} onChange={e => setDateLessonForm(f => ({ ...f, room: e.target.value }))} placeholder="305" required /></Field>
+            <SaveBtn label={savingDateLesson ? "Сохраняем..." : "Сохранить"} loading={savingDateLesson} />
+          </form>
+        </Modal>
       )}
 
       {/* ── MODAL: edit/add single lesson / trip / holiday (week view) ── */}
