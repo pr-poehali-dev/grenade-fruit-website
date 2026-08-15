@@ -2421,16 +2421,45 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
     return [...map.values()].sort((a, b) => a.iso.localeCompare(b.iso)).map(e => ({ date: e.label, percent: Math.round(e.total / e.count) }));
   }, [moduleGrades, selectedModule]);
 
-  const studentSummary = students.map(s => {
-    const recs = moduleGrades.filter(g => g.student_id === s.id);
-    const avgPct = recs.length ? Math.round(recs.reduce((sum, g) => sum + gradeToPercent(g.grade, g.grade_max), 0) / recs.length) : 0;
-    return { student: s, count: recs.length, avgPct };
-  }).filter(x => x.count > 0);
+  // Средний % ребёнка за модуль в разбивке по предметам — для родителя
+  const childSubjectStats = useMemo(() => {
+    if (user.role !== "parent") return [];
+    const map = new Map<string, { total: number; count: number }>();
+    moduleGrades.forEach(g => {
+      const entry = map.get(g.subject) || { total: 0, count: 0 };
+      entry.total += gradeToPercent(g.grade, g.grade_max);
+      entry.count += 1;
+      map.set(g.subject, entry);
+    });
+    return [...map.entries()]
+      .map(([subject, { total, count }]) => ({ subject, count, avgPct: Math.round(total / count) }))
+      .sort((a, b) => a.subject.localeCompare(b.subject, "ru"));
+  }, [moduleGrades, user.role]);
 
-  // Средний % ребёнка за модуль — для родителя (students у родителя не загружается)
-  const childModuleAvgPct = moduleGrades.length
-    ? Math.round(moduleGrades.reduce((sum, g) => sum + gradeToPercent(g.grade, g.grade_max), 0) / moduleGrades.length)
-    : null;
+  // Средний % по ученикам в разбивке по предметам — для учителя
+  const teacherSubjectStats = useMemo(() => {
+    if (user.role !== "teacher") return [];
+    const map = new Map<string, Map<number, { total: number; count: number; name: string }>>();
+    moduleGrades.forEach(g => {
+      if (!map.has(g.subject)) map.set(g.subject, new Map());
+      const studMap = map.get(g.subject)!;
+      const entry = studMap.get(g.student_id) || { total: 0, count: 0, name: g.student_name };
+      entry.total += gradeToPercent(g.grade, g.grade_max);
+      entry.count += 1;
+      studMap.set(g.student_id, entry);
+    });
+    return [...map.entries()]
+      .map(([subject, studMap]) => ({
+        subject,
+        students: [...studMap.entries()].map(([studentId, { total, count, name }]) => ({
+          studentId,
+          name: students.find(s => s.id === studentId)?.full_name || name,
+          count,
+          avgPct: Math.round(total / count),
+        })),
+      }))
+      .sort((a, b) => a.subject.localeCompare(b.subject, "ru"));
+  }, [moduleGrades, user.role, students]);
 
   // Итоговые отметки по предметам за модуль — только предметы, по которым есть итоговая отметка
   const finalByStudent = useMemo(() => {
@@ -2578,27 +2607,43 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
             ) : (
               <Empty text="За этот модуль отметок нет" />
             )}
-            {user.role === "parent" && childModuleAvgPct !== null && (
-              <div className="flex items-center gap-3 px-4 py-2.5 rounded-2xl" style={{ background: percentLevel(childModuleAvgPct).bg }}>
-                <p className="font-medium text-sm flex-1" style={{ color: percentLevel(childModuleAvgPct).color }}>{percentLevel(childModuleAvgPct).label} уровень за модуль</p>
-                <span className="text-xs" style={{ color: percentLevel(childModuleAvgPct).color }}>{moduleGrades.length} отметок</span>
-                <span className="text-sm font-bold px-2 py-0.5 rounded-full" style={{ background: "white", color: percentLevel(childModuleAvgPct).color }}>{childModuleAvgPct}%</span>
-              </div>
-            )}
-            {user.role === "teacher" && studentSummary.length > 0 && (
+            {user.role === "parent" && childSubjectStats.length > 0 && (
               <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#9B6A7A" }}>Средний результат по ученикам</p>
-                {studentSummary.map(({ student, count, avgPct }) => {
+                <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#9B6A7A" }}>Средний результат по предметам</p>
+                {childSubjectStats.map(({ subject, count, avgPct }) => {
                   const lvl = percentLevel(avgPct);
                   return (
-                    <div key={student.id} className="flex items-center gap-3 px-4 py-2.5 rounded-2xl" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.08)" }}>
-                      <p className="font-medium text-sm flex-1" style={{ color: "#3D1520" }}>{student.full_name}</p>
+                    <div key={subject} className="flex items-center gap-3 px-4 py-2.5 rounded-2xl" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.08)" }}>
+                      <p className="font-medium text-sm flex-1" style={{ color: "#3D1520" }}>{subject}</p>
                       <span className="text-xs" style={{ color: "#9B6A7A" }}>{count} отметок</span>
                       <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ background: lvl.bg, color: lvl.color }}>{lvl.label}</span>
                       <span className="text-sm font-bold px-2 py-0.5 rounded-full" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{avgPct}%</span>
                     </div>
                   );
                 })}
+              </div>
+            )}
+            {user.role === "teacher" && teacherSubjectStats.length > 0 && (
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#9B6A7A" }}>Средний результат по предметам</p>
+                {teacherSubjectStats.map(({ subject, students: studs }) => (
+                  <div key={subject} className="p-3 rounded-2xl" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)" }}>
+                    <p className="font-medium text-sm mb-2" style={{ color: "#3D1520" }}>{subject}</p>
+                    <div className="space-y-1.5">
+                      {studs.map(({ studentId, name, count, avgPct }) => {
+                        const lvl = percentLevel(avgPct);
+                        return (
+                          <div key={studentId} className="flex items-center gap-2 text-sm">
+                            <span className="flex-1" style={{ color: "#3D1520" }}>{name}</span>
+                            <span className="text-xs" style={{ color: "#9B6A7A" }}>{count} отм.</span>
+                            <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ background: lvl.bg, color: lvl.color }}>{lvl.label}</span>
+                            <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{avgPct}%</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
             {finalByStudent.size > 0 && (
