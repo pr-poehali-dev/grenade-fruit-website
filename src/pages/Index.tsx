@@ -2386,31 +2386,16 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
     load();
   };
 
-  // Статистика по уровням успеваемости в процентах (по всем загруженным отметкам)
-  const levelStats = useMemo(() => {
-    const counts = new Map<string, number>();
-    grades.forEach(g => {
-      const lvl = percentLevel(gradeToPercent(g.grade, g.grade_max)).label;
-      counts.set(lvl, (counts.get(lvl) || 0) + 1);
-    });
-    return LEVELS.map(l => ({ ...l, count: counts.get(l.label) || 0 })).filter(x => x.count > 0);
-  }, [grades]);
-
-  // Общий средний % по всем отметкам ребёнка — для карточки родителя
-  const overallAvgPct = useMemo(() => {
-    if (!grades.length) return null;
-    return Math.round(grades.reduce((sum, g) => sum + gradeToPercent(g.grade, g.grade_max), 0) / grades.length);
-  }, [grades]);
-
   const moduleGrades = selectedModule
     ? grades.filter(g => parseRuDateInModule(g.grade_date, selectedModule) !== null)
     : grades;
 
-  // Динамика среднего % по датам за модуль — данные для графика
-  const dateChartData = useMemo(() => {
+  // Динамика % по датам — строго для одного набора отметок (один ученик + один предмет),
+  // без смешивания разных предметов/учеников в одно значение
+  const buildDateChart = useCallback((recs: Grade[]) => {
     if (!selectedModule) return [];
     const map = new Map<string, { iso: string; label: string; total: number; count: number }>();
-    moduleGrades.forEach(g => {
+    recs.forEach(g => {
       const iso = parseRuDateInModule(g.grade_date, selectedModule);
       if (!iso) return;
       const entry = map.get(iso) || { iso, label: g.grade_date, total: 0, count: 0 };
@@ -2419,47 +2404,49 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
       map.set(iso, entry);
     });
     return [...map.values()].sort((a, b) => a.iso.localeCompare(b.iso)).map(e => ({ date: e.label, percent: Math.round(e.total / e.count) }));
-  }, [moduleGrades, selectedModule]);
+  }, [selectedModule]);
 
-  // Средний % ребёнка за модуль в разбивке по предметам — для родителя
+  // Средний % ребёнка за модуль в разбивке по предметам, с графиком динамики по каждому предмету — для родителя
   const childSubjectStats = useMemo(() => {
     if (user.role !== "parent") return [];
-    const map = new Map<string, { total: number; count: number }>();
+    const map = new Map<string, Grade[]>();
     moduleGrades.forEach(g => {
-      const entry = map.get(g.subject) || { total: 0, count: 0 };
-      entry.total += gradeToPercent(g.grade, g.grade_max);
-      entry.count += 1;
-      map.set(g.subject, entry);
+      if (!map.has(g.subject)) map.set(g.subject, []);
+      map.get(g.subject)!.push(g);
     });
     return [...map.entries()]
-      .map(([subject, { total, count }]) => ({ subject, count, avgPct: Math.round(total / count) }))
+      .map(([subject, recs]) => ({
+        subject,
+        count: recs.length,
+        avgPct: Math.round(recs.reduce((sum, g) => sum + gradeToPercent(g.grade, g.grade_max), 0) / recs.length),
+        chart: buildDateChart(recs),
+      }))
       .sort((a, b) => a.subject.localeCompare(b.subject, "ru"));
-  }, [moduleGrades, user.role]);
+  }, [moduleGrades, user.role, buildDateChart]);
 
-  // Средний % по ученикам в разбивке по предметам — для учителя
+  // Средний % по каждому ученику в разбивке по каждому предмету отдельно, с графиком динамики — для учителя
   const teacherSubjectStats = useMemo(() => {
     if (user.role !== "teacher") return [];
-    const map = new Map<string, Map<number, { total: number; count: number; name: string }>>();
+    const bySubject = new Map<string, Map<number, Grade[]>>();
     moduleGrades.forEach(g => {
-      if (!map.has(g.subject)) map.set(g.subject, new Map());
-      const studMap = map.get(g.subject)!;
-      const entry = studMap.get(g.student_id) || { total: 0, count: 0, name: g.student_name };
-      entry.total += gradeToPercent(g.grade, g.grade_max);
-      entry.count += 1;
-      studMap.set(g.student_id, entry);
+      if (!bySubject.has(g.subject)) bySubject.set(g.subject, new Map());
+      const studMap = bySubject.get(g.subject)!;
+      if (!studMap.has(g.student_id)) studMap.set(g.student_id, []);
+      studMap.get(g.student_id)!.push(g);
     });
-    return [...map.entries()]
+    return [...bySubject.entries()]
       .map(([subject, studMap]) => ({
         subject,
-        students: [...studMap.entries()].map(([studentId, { total, count, name }]) => ({
+        students: [...studMap.entries()].map(([studentId, recs]) => ({
           studentId,
-          name: students.find(s => s.id === studentId)?.full_name || name,
-          count,
-          avgPct: Math.round(total / count),
+          name: students.find(s => s.id === studentId)?.full_name || recs[0]?.student_name,
+          count: recs.length,
+          avgPct: Math.round(recs.reduce((sum, g) => sum + gradeToPercent(g.grade, g.grade_max), 0) / recs.length),
+          chart: buildDateChart(recs),
         })),
       }))
       .sort((a, b) => a.subject.localeCompare(b.subject, "ru"));
-  }, [moduleGrades, user.role, students]);
+  }, [moduleGrades, user.role, students, buildDateChart]);
 
   // Итоговые отметки по предметам за модуль — только предметы, по которым есть итоговая отметка
   const finalByStudent = useMemo(() => {
@@ -2474,27 +2461,6 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
   return (
     <div>
       <SectionTitle emoji="⭐" title={`Отметки · ${cls.display_name || cls.name}`} sub={user.role === "parent" ? user.child : undefined} />
-      {!loading && user.role === "parent" && overallAvgPct !== null && (
-        <div className="flex items-center gap-4 p-4 rounded-2xl mb-4" style={{ background: percentLevel(overallAvgPct).bg }}>
-          <div className="w-16 h-16 rounded-full flex items-center justify-center text-xl font-bold shrink-0" style={{ background: "white", color: percentLevel(overallAvgPct).color, fontFamily: "Cormorant, serif" }}>
-            {overallAvgPct}%
-          </div>
-          <div>
-            <p className="text-sm font-bold" style={{ color: percentLevel(overallAvgPct).color }}>{percentLevel(overallAvgPct).label} уровень</p>
-            <p className="text-xs" style={{ color: "#9B6A7A" }}>Средний результат по всем отметкам · {grades.length} шт.</p>
-          </div>
-        </div>
-      )}
-      {!loading && levelStats.length > 0 && (
-        <div className="flex gap-2 mb-4 flex-wrap">
-          {levelStats.map(l => (
-            <div key={l.label} className="px-4 py-2 rounded-2xl flex items-center gap-2" style={{ background: l.bg, color: l.color }}>
-              <span className="text-sm font-bold">{l.label}</span>
-              <span className="text-sm font-medium">× {l.count}</span>
-            </div>
-          ))}
-        </div>
-      )}
       {modules.length > 0 && (
         <button onClick={() => setShowSummary(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium mb-4 transition-all hover:opacity-80"
@@ -2590,62 +2556,81 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
                 {new Date(selectedModule.date_start).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })} — {new Date(selectedModule.date_end).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
               </p>
             )}
-            {dateChartData.length > 0 ? (
-              <div style={{ width: "100%", height: 220 }}>
-                <ResponsiveContainer>
-                  <BarChart data={dateChartData} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(139,26,47,0.1)" />
-                    <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#9B6A7A" }} />
-                    <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: "#9B6A7A" }} tickFormatter={v => `${v}%`} />
-                    <Tooltip formatter={(v: number) => [`${v}%`, "Средний результат"]} contentStyle={{ borderRadius: 12, border: "1.5px solid rgba(139,26,47,0.15)", fontSize: 12 }} />
-                    <Bar dataKey="percent" radius={[6, 6, 0, 0]}>
-                      {dateChartData.map((d, i) => <Cell key={i} fill={percentLevel(d.percent).bar} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            ) : (
-              <Empty text="За этот модуль отметок нет" />
-            )}
-            {user.role === "parent" && childSubjectStats.length > 0 && (
-              <div className="space-y-2">
-                <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#9B6A7A" }}>Средний результат по предметам</p>
-                {childSubjectStats.map(({ subject, count, avgPct }) => {
+            {user.role === "parent" && childSubjectStats.length > 0 ? (
+              <div className="space-y-3">
+                <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#9B6A7A" }}>Результаты по предметам</p>
+                {childSubjectStats.map(({ subject, count, avgPct, chart }) => {
                   const lvl = percentLevel(avgPct);
                   return (
-                    <div key={subject} className="flex items-center gap-3 px-4 py-2.5 rounded-2xl" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.08)" }}>
-                      <p className="font-medium text-sm flex-1" style={{ color: "#3D1520" }}>{subject}</p>
-                      <span className="text-xs" style={{ color: "#9B6A7A" }}>{count} отметок</span>
-                      <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ background: lvl.bg, color: lvl.color }}>{lvl.label}</span>
-                      <span className="text-sm font-bold px-2 py-0.5 rounded-full" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{avgPct}%</span>
+                    <div key={subject} className="p-3 rounded-2xl" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)" }}>
+                      <div className="flex items-center gap-3 mb-2">
+                        <p className="font-medium text-sm flex-1" style={{ color: "#3D1520" }}>{subject}</p>
+                        <span className="text-xs" style={{ color: "#9B6A7A" }}>{count} отметок</span>
+                        <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ background: lvl.bg, color: lvl.color }}>{lvl.label}</span>
+                        <span className="text-sm font-bold px-2 py-0.5 rounded-full" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{avgPct}%</span>
+                      </div>
+                      {chart.length > 0 && (
+                        <div style={{ width: "100%", height: 140 }}>
+                          <ResponsiveContainer>
+                            <BarChart data={chart} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                              <CartesianGrid strokeDasharray="3 3" stroke="rgba(139,26,47,0.1)" />
+                              <XAxis dataKey="date" tick={{ fontSize: 9, fill: "#9B6A7A" }} />
+                              <YAxis domain={[0, 100]} tick={{ fontSize: 9, fill: "#9B6A7A" }} tickFormatter={v => `${v}%`} />
+                              <Tooltip formatter={(v: number) => [`${v}%`, subject]} contentStyle={{ borderRadius: 12, border: "1.5px solid rgba(139,26,47,0.15)", fontSize: 12 }} />
+                              <Bar dataKey="percent" radius={[6, 6, 0, 0]}>
+                                {chart.map((d, i) => <Cell key={i} fill={percentLevel(d.percent).bar} />)}
+                              </Bar>
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
               </div>
-            )}
-            {user.role === "teacher" && teacherSubjectStats.length > 0 && (
+            ) : user.role === "parent" ? (
+              <Empty text="За этот модуль отметок нет" />
+            ) : null}
+            {user.role === "teacher" && teacherSubjectStats.length > 0 ? (
               <div className="space-y-3">
-                <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#9B6A7A" }}>Средний результат по предметам</p>
+                <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#9B6A7A" }}>Результаты по предметам и ученикам</p>
                 {teacherSubjectStats.map(({ subject, students: studs }) => (
-                  <div key={subject} className="p-3 rounded-2xl" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)" }}>
-                    <p className="font-medium text-sm mb-2" style={{ color: "#3D1520" }}>{subject}</p>
-                    <div className="space-y-1.5">
-                      {studs.map(({ studentId, name, count, avgPct }) => {
-                        const lvl = percentLevel(avgPct);
-                        return (
-                          <div key={studentId} className="flex items-center gap-2 text-sm">
-                            <span className="flex-1" style={{ color: "#3D1520" }}>{name}</span>
+                  <div key={subject} className="space-y-2">
+                    <p className="text-xs font-bold" style={{ color: "#8B1A2F" }}>{subject}</p>
+                    {studs.map(({ studentId, name, count, avgPct, chart }) => {
+                      const lvl = percentLevel(avgPct);
+                      return (
+                        <div key={studentId} className="p-3 rounded-2xl" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)" }}>
+                          <div className="flex items-center gap-2 text-sm mb-2">
+                            <span className="flex-1 font-medium" style={{ color: "#3D1520" }}>{name}</span>
                             <span className="text-xs" style={{ color: "#9B6A7A" }}>{count} отм.</span>
                             <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{ background: lvl.bg, color: lvl.color }}>{lvl.label}</span>
                             <span className="text-xs font-bold px-2 py-0.5 rounded-full" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{avgPct}%</span>
                           </div>
-                        );
-                      })}
-                    </div>
+                          {chart.length > 0 && (
+                            <div style={{ width: "100%", height: 120 }}>
+                              <ResponsiveContainer>
+                                <BarChart data={chart} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(139,26,47,0.1)" />
+                                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: "#9B6A7A" }} />
+                                  <YAxis domain={[0, 100]} tick={{ fontSize: 9, fill: "#9B6A7A" }} tickFormatter={v => `${v}%`} />
+                                  <Tooltip formatter={(v: number) => [`${v}%`, `${subject} · ${name}`]} contentStyle={{ borderRadius: 12, border: "1.5px solid rgba(139,26,47,0.15)", fontSize: 12 }} />
+                                  <Bar dataKey="percent" radius={[6, 6, 0, 0]}>
+                                    {chart.map((d, i) => <Cell key={i} fill={percentLevel(d.percent).bar} />)}
+                                  </Bar>
+                                </BarChart>
+                              </ResponsiveContainer>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 ))}
               </div>
-            )}
+            ) : user.role === "teacher" ? (
+              <Empty text="За этот модуль отметок нет" />
+            ) : null}
             {finalByStudent.size > 0 && (
               <div className="space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#9B6A7A" }}>Итоговые отметки по предметам</p>
