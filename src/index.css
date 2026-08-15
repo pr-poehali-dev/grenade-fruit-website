@@ -44,10 +44,6 @@
   }
 }
 
-html {
-  font-size: 150%;
-}
-
 @layer base {
   * {
     @apply border-border;

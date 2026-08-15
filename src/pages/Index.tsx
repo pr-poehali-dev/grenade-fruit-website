@@ -79,7 +79,7 @@ function GradeBadge({ grade, gradeMax }: { grade: number; gradeMax?: number | nu
   const level = gradeMax ? (pct >= 60 ? 5 : pct >= 40 ? 4 : pct >= 20 ? 3 : 2) : grade;
   return (
     <div className={`w-10 h-10 rounded-full flex flex-col items-center justify-center shrink-0 grade-${level}`} style={{ fontFamily: "Cormorant, serif" }}>
-      <span className="font-bold leading-none" style={{ fontSize: gradeMax ? 16.5 : 27 }}>{gradeLabel(grade, gradeMax)}</span>
+      <span className="font-bold leading-none" style={{ fontSize: gradeMax ? 11 : 18 }}>{gradeLabel(grade, gradeMax)}</span>
     </div>
   );
 }
@@ -226,8 +226,8 @@ function LoginScreen({ onLogin }: { onLogin: (u: User) => void }) {
           <div className="inline-flex items-center justify-center w-20 h-20 rounded-full mb-4 animate-pulse-glow" style={{ background: "#ffffff" }}>
             <img src="https://cdn.poehali.dev/projects/216115a8-6f23-4b25-a72a-91c740414743/bucket/4acd2a27-d58c-489e-8d93-6605b927987f.jpg" className="w-12 h-12 object-contain" alt="гранат" />
           </div>
-          <div style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif", fontSize: 66, fontStyle: "italic", fontWeight: 700, lineHeight: 1 }}>Гранатовый</div>
-          <div style={{ color: "#8B1A2F", fontFamily: "Cormorant, serif", fontSize: 45, fontWeight: 600 }}>Дневник</div>
+          <div style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif", fontSize: 44, fontStyle: "italic", fontWeight: 700, lineHeight: 1 }}>Гранатовый</div>
+          <div style={{ color: "#8B1A2F", fontFamily: "Cormorant, serif", fontSize: 30, fontWeight: 600 }}>Дневник</div>
           <p className="text-sm mt-1.5" style={{ color: "#9B6A7A" }}>Электронный школьный журнал</p>
         </div>
 
@@ -419,7 +419,7 @@ export default function Index() {
               <img src="https://cdn.poehali.dev/projects/216115a8-6f23-4b25-a72a-91c740414743/bucket/4acd2a27-d58c-489e-8d93-6605b927987f.jpg" className="w-5 h-5 object-contain" alt="гранат" />
             </div>
             <div>
-              <p className="font-bold leading-tight" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif", fontSize: 27 }}>Гранатовый Дневник</p>
+              <p className="font-bold leading-tight" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif", fontSize: 18 }}>Гранатовый Дневник</p>
               <p className="text-xs" style={{ color: "#9B6A7A" }}>
                 {user.role === "teacher" ? `👩‍🏫 ${user.display_name || user.login}` : `👨‍👩‍👧 ${user.child}`}
                 {selectedClass && <span className="ml-1.5 px-1.5 py-0.5 rounded-md text-xs font-semibold" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{selectedClass.display_name || selectedClass.name}</span>}
@@ -474,7 +474,7 @@ export default function Index() {
                 {showNotifs && (
                   <div className="absolute right-0 top-11 w-72 rounded-2xl shadow-2xl overflow-hidden z-50 animate-slide-up" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.12)" }}>
                     <div className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: "rgba(139,26,47,0.08)" }}>
-                      <span style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif", fontSize: 27, fontWeight: 700 }}>Уведомления</span>
+                      <span style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif", fontSize: 18, fontWeight: 700 }}>Уведомления</span>
                       {unread > 0 && <button onClick={markAllRead} className="text-xs" style={{ color: "#8B1A2F" }}>Прочитать все</button>}
                     </div>
                     <div className="max-h-64 overflow-y-auto">
