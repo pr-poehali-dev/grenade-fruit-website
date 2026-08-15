@@ -422,7 +422,7 @@ export default function Index() {
               <p className="font-bold leading-tight" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif", fontSize: 27 }}>Гранатовый Дневник</p>
               <p className="text-xs" style={{ color: "#9B6A7A" }}>
                 {user.role === "teacher" ? `👩‍🏫 ${user.display_name || user.login}` : `👨‍👩‍👧 ${user.child}`}
-                {selectedClass && <span className="ml-1.5 px-1.5 py-0.5 rounded-md text-xs font-semibold" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{selectedClass.display_name || selectedClass.name}</span>}
+                {selectedClass && <span className="ml-1.5 px-1.5 py-0.5 rounded-md text-sm font-semibold" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{selectedClass.display_name || selectedClass.name}</span>}
               </p>
             </div>
           </div>
@@ -526,7 +526,7 @@ export default function Index() {
               <div className="space-y-1">
                 {sortedClasses.map(cl => (
                   <button key={cl.id} onClick={() => { setSelectedClass(cl); goTab("schedule"); }}
-                    className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.02]"
+                    className="w-full text-left px-3 py-2.5 rounded-xl text-base font-medium transition-all hover:scale-[1.02]"
                     style={{
                       background: tab !== "my_schedule" && tab !== "extended_day" && selectedClass?.id === cl.id ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
                       color: tab !== "my_schedule" && tab !== "extended_day" && selectedClass?.id === cl.id ? "white" : "#3D1520",
@@ -579,7 +579,7 @@ export default function Index() {
               <div className="mt-6 flex flex-col gap-2 w-full max-w-xs md:hidden">
                 {sortedClasses.map(cl => (
                   <button key={cl.id} onClick={() => { setSelectedClass(cl); goTab("schedule"); }}
-                    className="py-2.5 px-4 rounded-xl text-sm font-medium text-left"
+                    className="py-2.5 px-4 rounded-xl text-base font-medium text-left"
                     style={{ background: "white", color: "#3D1520", border: "1.5px solid rgba(139,26,47,0.12)" }}>
                     {cl.display_name || `${cl.grade} класс`}
                   </button>
@@ -1182,12 +1182,12 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                     <div key={iso}>
                       {/* Day header */}
                       <div className="flex items-center gap-2 mb-2">
-                        <div className="px-3 py-1 rounded-xl text-xs font-bold"
+                        <div className="px-3 py-1 rounded-xl text-sm font-bold"
                           style={{ background: isToday ? "linear-gradient(135deg,#5C0F1E,#8B1A2F)" : "#F5E0E5", color: isToday ? "white" : "#8B1A2F" }}>
                           {dayName}
                         </div>
-                        <span className="text-xs" style={{ color: "#9B6A7A" }}>{dateLabel}</span>
-                        {isToday && <span className="text-xs font-semibold" style={{ color: "#8B1A2F" }}>· сегодня</span>}
+                        <span className="text-sm" style={{ color: "#9B6A7A" }}>{dateLabel}</span>
+                        {isToday && <span className="text-sm font-semibold" style={{ color: "#8B1A2F" }}>· сегодня</span>}
                         {user.role === "teacher" && !isBreakDay && (
                           <button onClick={() => { setEditing(null); setForm({ day_of_week: dayName, time_slot: "08:00–08:45", subject: "", teacher_name: "", room: "", event_type: "lesson", event_name: "", event_description: "", event_date: iso }); setShowAdd(true); }}
                             className="ml-auto w-6 h-6 rounded-lg flex items-center justify-center hover:bg-pink-100 transition-colors">
@@ -1244,13 +1244,13 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                             {lessonsToShow.map((lesson) => (
                               <div key={lesson.id} className="flex gap-3 items-center p-3 rounded-2xl"
                                 style={{ background: isToday ? "rgba(139,26,47,0.04)" : "white", border: `1.5px solid ${isToday ? "rgba(139,26,47,0.12)" : "rgba(139,26,47,0.07)"}` }}>
-                                <span className="text-xs font-medium px-2 py-1 rounded-lg shrink-0" style={{ background: "#F5E0E5", color: "#8B1A2F", whiteSpace: "nowrap" }}>{lesson.time_slot}</span>
+                                <span className="text-sm font-medium px-2 py-1 rounded-lg shrink-0" style={{ background: "#F5E0E5", color: "#8B1A2F", whiteSpace: "nowrap" }}>{lesson.time_slot}</span>
                                 <div className="flex-1 min-w-0">
-                                  <p className="font-semibold text-sm truncate" style={{ color: "#3D1520" }}>{lesson.subject}</p>
-                                  <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{lesson.teacher_name}</p>
+                                  <p className="font-semibold text-base truncate" style={{ color: "#3D1520" }}>{lesson.subject}</p>
+                                  <p className="text-sm mt-0.5" style={{ color: "#9B6A7A" }}>{lesson.teacher_name}</p>
                                 </div>
                                 {lesson.time_slot === "13:40–14:20" && (
-                                  <span className="text-xs px-2 py-1 rounded-lg shrink-0" style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>🚪 {lesson.room}</span>
+                                  <span className="text-sm font-bold px-2 py-1 rounded-lg shrink-0" style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>🚪 {lesson.room}</span>
                                 )}
                                 {user.role === "teacher" && isFromTemplate && (
                                   <div className="flex gap-1 shrink-0">
@@ -1424,13 +1424,13 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                             {lessons.map((l, i) => (
                               <div key={l.id} className="flex gap-3 items-center p-3 rounded-xl animate-slide-up"
                                 style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.04}s`, opacity: 0 }}>
-                                <span className="text-xs font-medium px-2 py-0.5 rounded-lg shrink-0" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{l.time_slot}</span>
+                                <span className="text-sm font-medium px-2 py-0.5 rounded-lg shrink-0" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{l.time_slot}</span>
                                 <div className="flex-1">
-                                  <p className="text-sm font-semibold" style={{ color: "#3D1520" }}>{l.subject}</p>
-                                  <p className="text-xs" style={{ color: "#9B6A7A" }}>{l.teacher_name}</p>
+                                  <p className="text-base font-semibold" style={{ color: "#3D1520" }}>{l.subject}</p>
+                                  <p className="text-sm" style={{ color: "#9B6A7A" }}>{l.teacher_name}</p>
                                 </div>
                                 {l.time_slot === "13:40–14:20" && (
-                                  <span className="text-xs px-2 py-0.5 rounded-lg shrink-0" style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>🚪 {l.room}</span>
+                                  <span className="text-sm font-bold px-2 py-0.5 rounded-lg shrink-0" style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>🚪 {l.room}</span>
                                 )}
                                 {user.role === "teacher" && (
                                   <div className="flex items-center gap-1 shrink-0">
@@ -1922,7 +1922,7 @@ function MyScheduleTab({ user, classes }: { user: User; classes: SchoolClass[] }
             if (dayLessons.length === 0) return null;
             return (
               <div key={dayName}>
-                <div className="px-3 py-1 rounded-xl text-xs font-bold inline-block mb-2" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
+                <div className="px-3 py-1 rounded-xl text-sm font-bold inline-block mb-2" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
                   {dayName}
                 </div>
                 <div className="space-y-2">
@@ -1933,10 +1933,10 @@ function MyScheduleTab({ user, classes }: { user: User; classes: SchoolClass[] }
                     return (
                       <div key={lesson.id} className="p-3 rounded-2xl" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.07)" }}>
                         <div className="flex gap-3 items-center">
-                          <span className="text-xs font-medium px-2 py-1 rounded-lg shrink-0" style={{ background: "#F5E0E5", color: "#8B1A2F", whiteSpace: "nowrap" }}>{lesson.time_slot}</span>
+                          <span className="text-sm font-medium px-2 py-1 rounded-lg shrink-0" style={{ background: "#F5E0E5", color: "#8B1A2F", whiteSpace: "nowrap" }}>{lesson.time_slot}</span>
                           <div className="flex-1 min-w-0">
-                            <p className="font-semibold text-sm truncate" style={{ color: "#3D1520" }}>{lesson.subject}</p>
-                            <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{className}{lesson.room && ` · 🚪 ${lesson.room}`}</p>
+                            <p className="font-semibold text-base truncate" style={{ color: "#3D1520" }}>{lesson.subject}</p>
+                            <p className="text-sm font-medium mt-0.5" style={{ color: "#9B6A7A" }}>{className}{lesson.room && <span style={{ color: "#7A5700", fontWeight: 700 }}> · 🚪 {lesson.room}</span>}</p>
                           </div>
                         </div>
                         {hwList.length > 0 && (
@@ -2039,7 +2039,7 @@ function ExtendedDayTab({ classes }: { classes: SchoolClass[] }) {
             const group = groupedByClass.get(classId) || [];
             return (
               <div key={classId}>
-                <div className="px-3 py-1 rounded-xl text-xs font-bold inline-block mb-2" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
+                <div className="px-3 py-1 rounded-xl text-sm font-bold inline-block mb-2" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
                   {classById.get(classId) || group[0]?.class_display_name || group[0]?.class_name || "—"}
                 </div>
                 <div className="space-y-2">
