@@ -151,6 +151,7 @@ function SaveBtn({ label = "Сохранить", loading }: { label?: string; lo
 }
 
 const DAYS = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница"];
+const DAY_ABBR: Record<string, string> = { "Понедельник": "Пн", "Вторник": "Вт", "Среда": "Ср", "Четверг": "Чт", "Пятница": "Пт" };
 const TEACHERS = ["Елена Сергеевна", "Александр Валерьевич", "Лариса Ивановна", "Олеся Александровна", "Ирина Олеговна", "Любовь Александровна", "Вадим Игоревич", "Артем Сергеевич", "Светлана Владимировна", "Мария Николаевна"];
 const NOTIF_EMOJI: Record<string, string> = { grade: "⭐", homework: "📚", recommendation: "💬", file: "📎", attendance: "🚸" };
 
@@ -2118,7 +2119,7 @@ function ExtendedDayTab({ classes }: { classes: SchoolClass[] }) {
                                 color: active ? "#8B1A2F" : "#B8909B",
                                 border: "1px solid " + (active ? "rgba(139,26,47,0.2)" : "rgba(139,26,47,0.1)"),
                               }}>
-                              {day.slice(0, 2)}
+                              {DAY_ABBR[day] || day.slice(0, 2)}
                             </button>
                           );
                         })}
