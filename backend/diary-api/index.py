@@ -67,12 +67,16 @@ def handler(event: dict, context) -> dict:
         return handle_add_student(body)
     if action == "delete_student":
         return handle_delete_student(body)
+    if action == "update_student":
+        return handle_update_student(body)
     if action == "get_parents":
         return handle_get_parents(params)
     if action == "add_parent":
         return handle_add_parent(body)
     if action == "delete_parent":
         return handle_delete_parent(body)
+    if action == "update_parent":
+        return handle_update_parent(body)
     if action == "get_modules":
         return handle_get_modules()
     if action == "update_module":
@@ -274,6 +278,23 @@ def handle_delete_student(body):
     return ok({"ok": True})
 
 
+def handle_update_student(body):
+    """Изменяет имя ученика."""
+    student_id = body.get("student_id")
+    full_name = (body.get("full_name") or "").strip()
+    if not student_id or not full_name:
+        return err("Укажите ученика и имя")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"UPDATE {SCHEMA}.students SET full_name = %s WHERE id = %s RETURNING *", (full_name, student_id))
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return err("Ученик не найден", 404)
+    return ok(dict(row))
+
+
 # ── Parents ───────────────────────────────────────────────
 def handle_get_parents(params):
     class_id = params.get("class_id")
@@ -341,6 +362,26 @@ def handle_delete_parent(body):
     conn.commit()
     conn.close()
     return ok({"ok": True})
+
+
+def handle_update_parent(body):
+    """Изменяет отображаемое имя родителя."""
+    parent_id = body.get("parent_id")
+    display_name = (body.get("display_name") or "").strip()
+    if not parent_id or not display_name:
+        return err("Укажите родителя и имя")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"UPDATE {SCHEMA}.users SET display_name = %s WHERE id = %s AND role = 'parent' RETURNING id, login, display_name, role",
+        (display_name, parent_id)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return err("Родитель не найден", 404)
+    return ok(dict(row))
 
 
 # ── Schedule ──────────────────────────────────────────────

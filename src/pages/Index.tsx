@@ -2194,6 +2194,9 @@ function StudentsTab({ cls }: { cls: SchoolClass }) {
   const [showAdd, setShowAdd] = useState(false);
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState<Student | null>(null);
+  const [editName, setEditName] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -2220,6 +2223,18 @@ function StudentsTab({ cls }: { cls: SchoolClass }) {
     load();
   };
 
+  const openEdit = (s: Student) => { setEditing(s); setEditName(s.full_name); };
+
+  const saveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editing) return;
+    setSavingEdit(true);
+    await api("update_student", "POST", { student_id: editing.id, full_name: editName });
+    setSavingEdit(false);
+    setEditing(null);
+    load();
+  };
+
   return (
     <div>
       <SectionTitle emoji="👥" title={`Ученики · ${cls.display_name || cls.name}`} sub={`${students.length} учеников`} />
@@ -2233,6 +2248,9 @@ function StudentsTab({ cls }: { cls: SchoolClass }) {
                 {s.full_name.charAt(0)}
               </div>
               <p className="font-medium text-sm flex-1" style={{ color: "#3D1520" }}>{s.full_name}</p>
+              <button onClick={() => openEdit(s)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 shrink-0">
+                <Icon name="Pencil" size={13} style={{ color: "#8B1A2F" }} />
+              </button>
               <button onClick={() => removeStudent(s.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
                 <Icon name="Trash2" size={13} className="text-red-400" />
               </button>
@@ -2247,6 +2265,15 @@ function StudentsTab({ cls }: { cls: SchoolClass }) {
           <form onSubmit={save} className="space-y-3">
             <Field label="Имя и фамилия"><Input value={name} onChange={e => setName(e.target.value)} placeholder="Иван Петров" required /></Field>
             <SaveBtn loading={saving} />
+          </form>
+        </Modal>
+      )}
+
+      {editing && (
+        <Modal title="Изменить имя ученика" onClose={() => setEditing(null)}>
+          <form onSubmit={saveEdit} className="space-y-3">
+            <Field label="Имя и фамилия"><Input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Иван Петров" required /></Field>
+            <SaveBtn loading={savingEdit} />
           </form>
         </Modal>
       )}
@@ -3050,6 +3077,9 @@ function ParentsTab({ cls }: { cls: SchoolClass }) {
   const [form, setForm] = useState({ login: "", password: "", display_name: "", student_id: "" });
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [editing, setEditing] = useState<Parent | null>(null);
+  const [editName, setEditName] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -3081,6 +3111,18 @@ function ParentsTab({ cls }: { cls: SchoolClass }) {
     load();
   };
 
+  const openEdit = (p: Parent) => { setEditing(p); setEditName(p.display_name || p.login); };
+
+  const saveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editing) return;
+    setSavingEdit(true);
+    await api("update_parent", "POST", { parent_id: editing.id, display_name: editName });
+    setSavingEdit(false);
+    setEditing(null);
+    load();
+  };
+
   return (
     <div>
       <SectionTitle emoji="👨‍👩‍👧" title={`Родители · ${cls.display_name || cls.name}`} sub={`${parents.length} профилей`} />
@@ -3101,6 +3143,9 @@ function ParentsTab({ cls }: { cls: SchoolClass }) {
                   {formatLastLogin(p.last_login_at)}
                 </p>
               </div>
+              <button onClick={() => openEdit(p)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 shrink-0">
+                <Icon name="Pencil" size={13} style={{ color: "#8B1A2F" }} />
+              </button>
               <button onClick={() => removeParent(p.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
                 <Icon name="Trash2" size={13} className="text-red-400" />
               </button>
@@ -3135,6 +3180,15 @@ function ParentsTab({ cls }: { cls: SchoolClass }) {
               </div>
             )}
             <SaveBtn loading={saving} />
+          </form>
+        </Modal>
+      )}
+
+      {editing && (
+        <Modal title="Изменить имя родителя" onClose={() => setEditing(null)}>
+          <form onSubmit={saveEdit} className="space-y-3">
+            <Field label="Имя родителя"><Input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Мария Петрова" required /></Field>
+            <SaveBtn loading={savingEdit} />
           </form>
         </Modal>
       )}
