@@ -1982,7 +1982,7 @@ function MyScheduleTab({ user, classes }: { user: User; classes: SchoolClass[] }
 }
 
 // ─── Extended Day Tab (Продлёнка) ───────────────────────────
-interface ExtendedDayStudent { extended_id: number; student_id: number; full_name: string; class_id: number; class_display_name?: string; class_name?: string; grade: number; letter: string; homework: Homework[]; }
+interface ExtendedDayStudent { extended_id: number; student_id: number; full_name: string; class_id: number; class_display_name?: string; class_name?: string; grade: number; letter: string; homework: Homework[]; days?: string[]; }
 function ExtendedDayTab({ classes }: { classes: SchoolClass[] }) {
   const [students, setStudents] = useState<ExtendedDayStudent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1991,6 +1991,8 @@ function ExtendedDayTab({ classes }: { classes: SchoolClass[] }) {
   const [classStudents, setClassStudents] = useState<Student[]>([]);
   const [loadingClassStudents, setLoadingClassStudents] = useState(false);
   const [saving, setSaving] = useState<number | null>(null);
+  const [savingDays, setSavingDays] = useState<number | null>(null);
+  const [activeDay, setActiveDay] = useState<string>(DAYS[0]);
 
   const sortedClasses = useMemo(() => [...classes].sort((a, b) => a.grade - b.grade), [classes]);
 
@@ -2003,14 +2005,28 @@ function ExtendedDayTab({ classes }: { classes: SchoolClass[] }) {
 
   useEffect(() => { load(); }, [load]);
 
+  const toggleStudentDay = async (s: ExtendedDayStudent, day: string) => {
+    const currentDays = s.days && s.days.length > 0 ? s.days : DAYS;
+    const nextDays = currentDays.includes(day) ? currentDays.filter(d => d !== day) : [...currentDays, day];
+    setSavingDays(s.student_id);
+    setStudents(prev => prev.map(st => st.student_id === s.student_id ? { ...st, days: nextDays } : st));
+    await api("update_extended_day_student_days", "POST", { student_id: s.student_id, days: nextDays });
+    setSavingDays(null);
+  };
+
+  const studentsForActiveDay = useMemo(
+    () => students.filter(s => !s.days || s.days.length === 0 || s.days.includes(activeDay)),
+    [students, activeDay]
+  );
+
   const groupedByClass = useMemo(() => {
     const map = new Map<number, ExtendedDayStudent[]>();
-    students.forEach(s => {
+    studentsForActiveDay.forEach(s => {
       if (!map.has(s.class_id)) map.set(s.class_id, []);
       map.get(s.class_id)!.push(s);
     });
     return map;
-  }, [students]);
+  }, [studentsForActiveDay]);
 
   const classById = useMemo(() => new Map(classes.map(c => [c.id, c.display_name || `${c.grade} класс`])), [classes]);
   const groupedClassIds = useMemo(() => [...groupedByClass.keys()].sort((a, b) => {
@@ -2048,10 +2064,26 @@ function ExtendedDayTab({ classes }: { classes: SchoolClass[] }) {
 
   return (
     <div>
-      <SectionTitle emoji="☀️" title="Продлёнка" sub={`${students.length} учеников · из всех классов`} />
+      <SectionTitle emoji="☀️" title="Продлёнка" sub={`${studentsForActiveDay.length} учеников · ${activeDay.toLowerCase()}`} />
+
+      <div className="flex gap-1.5 mb-4 overflow-x-auto pb-1">
+        {DAYS.map(day => (
+          <button key={day} onClick={() => setActiveDay(day)}
+            className="px-3 py-1.5 rounded-xl text-xs font-medium shrink-0 transition-colors"
+            style={{
+              background: activeDay === day ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+              color: activeDay === day ? "white" : "#3D1520",
+              border: "1.5px solid rgba(139,26,47,0.1)",
+            }}>
+            {day}
+          </button>
+        ))}
+      </div>
 
       {students.length === 0 ? (
         <Empty text="Пока никого не добавили в продлёнку" />
+      ) : studentsForActiveDay.length === 0 ? (
+        <Empty text={`На ${activeDay.toLowerCase()} никого не назначено`} />
       ) : (
         <div className="space-y-5">
           {groupedClassIds.map(classId => {
@@ -2072,6 +2104,24 @@ function ExtendedDayTab({ classes }: { classes: SchoolClass[] }) {
                         <button onClick={() => removeStudent(s.student_id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
                           <Icon name="Trash2" size={13} className="text-red-400" />
                         </button>
+                      </div>
+                      <div className="flex gap-1 mt-2 flex-wrap">
+                        {DAYS.map(day => {
+                          const currentDays = s.days && s.days.length > 0 ? s.days : DAYS;
+                          const active = currentDays.includes(day);
+                          return (
+                            <button key={day} disabled={savingDays === s.student_id}
+                              onClick={() => toggleStudentDay(s, day)}
+                              className="px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors disabled:opacity-50"
+                              style={{
+                                background: active ? "#F5E0E5" : "transparent",
+                                color: active ? "#8B1A2F" : "#B8909B",
+                                border: "1px solid " + (active ? "rgba(139,26,47,0.2)" : "rgba(139,26,47,0.1)"),
+                              }}>
+                              {day.slice(0, 2)}
+                            </button>
+                          );
+                        })}
                       </div>
                       {s.homework.length > 0 && (
                         <div className="mt-2 pt-2 space-y-1" style={{ borderTop: "1px solid rgba(139,26,47,0.08)" }}>

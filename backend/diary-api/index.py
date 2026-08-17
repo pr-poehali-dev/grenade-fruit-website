@@ -155,6 +155,8 @@ def handler(event: dict, context) -> dict:
         return handle_add_extended_day_student(body)
     if action == "remove_extended_day_student":
         return handle_remove_extended_day_student(body)
+    if action == "update_extended_day_student_days":
+        return handle_update_extended_day_student_days(body)
 
     # Healthcheck
     if method == "GET" and not action:
@@ -1289,7 +1291,7 @@ def handle_get_extended_day_students():
     cur.execute(
         f"""SELECT eds.id as extended_id, s.id as student_id, s.full_name,
                    s.class_id, c.display_name as class_display_name, c.name as class_name,
-                   c.grade, c.letter
+                   c.grade, c.letter, eds.days
             FROM {SCHEMA}.extended_day_students eds
             JOIN {SCHEMA}.students s ON s.id = eds.student_id
             LEFT JOIN {SCHEMA}.classes c ON c.id = s.class_id
@@ -1347,3 +1349,23 @@ def handle_remove_extended_day_student(body):
     conn.commit()
     conn.close()
     return ok({"ok": True})
+
+
+def handle_update_extended_day_student_days(body):
+    """Обновляет список дней недели, когда ученик посещает продлёнку."""
+    student_id = body.get("student_id")
+    days = body.get("days")
+    if not student_id or not isinstance(days, list):
+        return err("student_id and days required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"UPDATE {SCHEMA}.extended_day_students SET days = %s WHERE student_id = %s RETURNING *",
+        (days, student_id)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return err("Ученик не найден в продлёнке", 404)
+    return ok(dict(row))
