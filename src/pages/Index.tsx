@@ -326,6 +326,10 @@ export default function Index() {
   const [fontScale, setFontScale] = useState<number>(() => {
     try { return Number(localStorage.getItem("font_scale") || "0"); } catch { return 0; }
   });
+  const FONT_SCALE_VALUES = [1, 1.15, 1.3];
+  useEffect(() => {
+    document.documentElement.style.fontSize = `${16 * FONT_SCALE_VALUES[fontScale]}px`;
+  }, [fontScale]);
   const cycleFontScale = () => {
     setFontScale(prev => {
       const next = (prev + 1) % 3;
@@ -333,7 +337,6 @@ export default function Index() {
       return next;
     });
   };
-  const FONT_SCALE_VALUES = [1, 1.15, 1.3];
 
   const unread = notifs.filter(n => !n.is_read).length;
 
@@ -419,7 +422,7 @@ export default function Index() {
   ];
 
   return (
-    <div className="min-h-screen" style={{ background: "#FDF6EE", fontSize: `${FONT_SCALE_VALUES[fontScale]}em` }}>
+    <div className="min-h-screen" style={{ background: "#FDF6EE" }}>
       {SEEDS.map((s, i) => <Seed key={i} {...s} />)}
 
       {/* Header */}
