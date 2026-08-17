@@ -323,6 +323,17 @@ export default function Index() {
   const [showNotifs, setShowNotifs] = useState(false);
   const [showClassPicker, setShowClassPicker] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
+  const [fontScale, setFontScale] = useState<number>(() => {
+    try { return Number(localStorage.getItem("font_scale") || "0"); } catch { return 0; }
+  });
+  const cycleFontScale = () => {
+    setFontScale(prev => {
+      const next = (prev + 1) % 3;
+      try { localStorage.setItem("font_scale", String(next)); } catch { /* noop */ }
+      return next;
+    });
+  };
+  const FONT_SCALE_VALUES = [1, 1.15, 1.3];
 
   const unread = notifs.filter(n => !n.is_read).length;
 
@@ -408,7 +419,7 @@ export default function Index() {
   ];
 
   return (
-    <div className="min-h-screen" style={{ background: "#FDF6EE" }}>
+    <div className="min-h-screen" style={{ background: "#FDF6EE", fontSize: `${FONT_SCALE_VALUES[fontScale]}em` }}>
       {SEEDS.map((s, i) => <Seed key={i} {...s} />)}
 
       {/* Header */}
@@ -494,6 +505,11 @@ export default function Index() {
                 )}
               </div>
             )}
+            <button onClick={cycleFontScale} title="Увеличить размер шрифта"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium" style={{ background: fontScale > 0 ? "#8B1A2F" : "#F5E0E5", color: fontScale > 0 ? "#FDF6EE" : "#8B1A2F" }}>
+              <Icon name="Type" size={13} />
+              <span className="hidden sm:inline">{fontScale === 0 ? "Крупный шрифт" : fontScale === 1 ? "Крупнее (А+)" : "Максимум (А++)"}</span>
+            </button>
             <button onClick={logout} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
               <Icon name="LogOut" size={13} /> Выйти
             </button>
