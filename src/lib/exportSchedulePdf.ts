@@ -53,6 +53,93 @@ function collectTimeSlots(lessonsByDay: Record<string, { time_slot: string }[]>)
   return [...set].sort((a, b) => a.localeCompare(b));
 }
 
+const SUBJECT_FONT_SIZE = 9.5;
+const INFO_FONT_SIZE = 6.5;
+const LESSON_GAP_MM = 1.4;
+
+function mmLineHeight(doc: jsPDF, fontSizePt: number): number {
+  const scaleFactor = doc.internal.scaleFactor;
+  const lineHeightFactor = doc.getLineHeightFactor ? doc.getLineHeightFactor() : 1.15;
+  return (fontSizePt / scaleFactor) * lineHeightFactor;
+}
+
+interface CellLesson { subject: string; who: string; room: string; }
+interface CellBlock { subjectLines: string[]; infoLines: string[]; height: number; }
+
+/**
+ * Считает раскладку строк (название урока крупным жирным шрифтом отдельно
+ * от учителя/класса и кабинета мелким) и суммарную высоту содержимого
+ * ячейки — используется и для измерения нужной высоты строки, и для
+ * последующей отрисовки, чтобы оба расчёта совпадали.
+ */
+function measureCellBlocks(doc: jsPDF, lessons: CellLesson[], maxWidth: number): { blocks: CellBlock[]; totalHeight: number } {
+  doc.setFont("Roboto", "bold");
+  doc.setFontSize(SUBJECT_FONT_SIZE);
+  const subjectLineHeight = mmLineHeight(doc, SUBJECT_FONT_SIZE);
+  doc.setFont("Roboto", "normal");
+  doc.setFontSize(INFO_FONT_SIZE);
+  const infoLineHeight = mmLineHeight(doc, INFO_FONT_SIZE);
+
+  const blocks: CellBlock[] = lessons.map(l => {
+    doc.setFont("Roboto", "bold");
+    doc.setFontSize(SUBJECT_FONT_SIZE);
+    const subjectLines: string[] = maxWidth > 0 ? doc.splitTextToSize(l.subject, maxWidth) : [l.subject];
+    const infoText = [l.who, l.room].filter(Boolean).join(" · ");
+    doc.setFont("Roboto", "normal");
+    doc.setFontSize(INFO_FONT_SIZE);
+    const infoLines: string[] = infoText && maxWidth > 0 ? doc.splitTextToSize(infoText, maxWidth) : infoText ? [infoText] : [];
+    const height = subjectLines.length * subjectLineHeight + infoLines.length * infoLineHeight;
+    return { subjectLines, infoLines, height };
+  });
+
+  const totalHeight = blocks.reduce((sum, b) => sum + b.height, 0) + LESSON_GAP_MM * Math.max(0, blocks.length - 1);
+  return { blocks, totalHeight };
+}
+
+/**
+ * Рисует содержимое ячейки вручную: название урока — крупным жирным
+ * шрифтом, учитель/класс и кабинет — мелким обычным, по центру ячейки.
+ * Используется вместо стандартного текста autoTable, чтобы получить
+ * разные размеры шрифта внутри одной ячейки таблицы.
+ */
+function drawCellLessons(
+  doc: jsPDF,
+  cellX: number,
+  cellY: number,
+  cellWidth: number,
+  cellHeight: number,
+  lessons: CellLesson[],
+  padding: number
+) {
+  const maxWidth = cellWidth - padding * 2;
+  if (maxWidth <= 0 || lessons.length === 0) return;
+
+  const subjectLineHeight = mmLineHeight(doc, SUBJECT_FONT_SIZE);
+  const infoLineHeight = mmLineHeight(doc, INFO_FONT_SIZE);
+  const { blocks, totalHeight } = measureCellBlocks(doc, lessons, maxWidth);
+  let cursorY = cellY + (cellHeight - totalHeight) / 2;
+
+  blocks.forEach((block, i) => {
+    doc.setFont("Roboto", "bold");
+    doc.setFontSize(SUBJECT_FONT_SIZE);
+    doc.setTextColor(...GARNET_DARK);
+    block.subjectLines.forEach(line => {
+      cursorY += subjectLineHeight;
+      doc.text(line, cellX + cellWidth / 2, cursorY - subjectLineHeight * 0.28, { align: "center" });
+    });
+
+    doc.setFont("Roboto", "normal");
+    doc.setFontSize(INFO_FONT_SIZE);
+    doc.setTextColor(...TEXT_MUTED);
+    block.infoLines.forEach(line => {
+      cursorY += infoLineHeight;
+      doc.text(line, cellX + cellWidth / 2, cursorY - infoLineHeight * 0.28, { align: "center" });
+    });
+
+    if (i < blocks.length - 1) cursorY += LESSON_GAP_MM;
+  });
+}
+
 function buildHeaderAndHead(doc: jsPDF, pageWidth: number, title: string, subtitle: string) {
   let cursorY = 14;
   doc.setFont("Roboto", "bold");
@@ -85,7 +172,8 @@ function footer(doc: jsPDF, pageWidth: number) {
  * Строит компактную сетку "Время × Дни недели" на одном листе A4 (альбомная
  * ориентация): каждая строка — учебное время, каждая колонка — день недели.
  * Такая компоновка гарантированно умещается на одну страницу вместо пяти
- * отдельных таблиц по дням.
+ * отдельных таблиц по дням. Название урока рисуется отдельно поверх ячейки
+ * крупным жирным шрифтом, чтобы визуально выделяться среди прочей информации.
  */
 function buildGridTable(
   doc: jsPDF,
@@ -97,19 +185,23 @@ function buildGridTable(
 ) {
   const timeColWidth = 24;
   const dayColWidth = (pageWidth - margin * 2 - timeColWidth) / WEEK_DAYS.length;
+  const cellPadding = 1.8;
 
   const head = [["Время", ...WEEK_DAYS.map(d => DAY_SHORT[d])]];
   const body = timeSlots.map(slot => {
     const row: string[] = [slot];
-    WEEK_DAYS.forEach(day => {
+    WEEK_DAYS.forEach(() => row.push(""));
+    return row;
+  });
+
+  const cellLessonsByPos = new Map<string, CellLesson[]>();
+  timeSlots.forEach((slot, rowIndex) => {
+    WEEK_DAYS.forEach((day, dayIndex) => {
       const lessons = (lessonsByDay[day] || []).filter(l => l.time_slot === slot);
-      if (lessons.length === 0) {
-        row.push("");
-      } else {
-        row.push(lessons.map(l => `${l.subject}\n${l.who}${l.room ? " · " + l.room : ""}`).join("\n\n"));
+      if (lessons.length > 0) {
+        cellLessonsByPos.set(`${rowIndex}:${dayIndex + 1}`, lessons.map(l => ({ subject: l.subject, who: l.who, room: l.room })));
       }
     });
-    return row;
   });
 
   autoTable(doc, {
@@ -121,10 +213,11 @@ function buildGridTable(
       font: "Roboto",
       fontSize: 8,
       textColor: TEXT_DARK,
-      cellPadding: 1.8,
+      cellPadding,
       valign: "middle",
       lineColor: [230, 210, 216],
       lineWidth: 0.15,
+      minCellHeight: 15,
     },
     headStyles: {
       fillColor: GARNET,
@@ -145,9 +238,27 @@ function buildGridTable(
     alternateRowStyles: { fillColor: ROW_ALT },
     theme: "grid",
     didParseCell: (data) => {
-      if (data.section === "body" && data.column.index > 0 && !data.cell.raw) {
+      if (data.section !== "body" || data.column.index === 0) return;
+      const lessons = cellLessonsByPos.get(`${data.row.index}:${data.column.index}`);
+      if (!lessons) {
         data.cell.styles.fillColor = EMPTY_CELL;
+        return;
       }
+      const maxWidth = dayColWidth - cellPadding * 2;
+      const { totalHeight } = measureCellBlocks(doc, lessons, maxWidth);
+      data.cell.styles.minCellHeight = totalHeight + cellPadding * 2;
+    },
+    willDrawCell: (data) => {
+      if (data.section !== "body" || data.column.index === 0) return;
+      const lessons = cellLessonsByPos.get(`${data.row.index}:${data.column.index}`);
+      if (!lessons) return;
+      data.cell.text = [];
+    },
+    didDrawCell: (data) => {
+      if (data.section !== "body" || data.column.index === 0) return;
+      const lessons = cellLessonsByPos.get(`${data.row.index}:${data.column.index}`);
+      if (!lessons) return;
+      drawCellLessons(doc, data.cell.x, data.cell.y, data.cell.width, data.cell.height, lessons, cellPadding);
     },
   });
 }
