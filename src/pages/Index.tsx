@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import Icon from "@/components/ui/icon";
 import { exportWeekTemplateToPdf, exportTeacherScheduleToPdf } from "@/lib/exportSchedulePdf";
+import { exportGradesSummaryToPdf } from "@/lib/exportGradesSummaryPdf";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 const API = "https://functions.poehali.dev/4adc107f-8465-4183-bc1a-9345fd1468dc";
@@ -2438,6 +2439,7 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [modules, setModules] = useState<Module[]>([]);
   const [selectedModule, setSelectedModule] = useState<Module | null>(null);
   const [showSummary, setShowSummary] = useState(false);
+  const [exportStudentId, setExportStudentId] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -2555,6 +2557,49 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
     return map;
   }, [moduleGrades]);
 
+  // Список предметов ученика за модуль со всеми отметками — для экспорта PDF-сводки
+  const buildSubjectSummary = useCallback((studentId: number) => {
+    const bySubject = new Map<string, Grade[]>();
+    moduleGrades.filter(g => g.student_id === studentId).forEach(g => {
+      if (!bySubject.has(g.subject)) bySubject.set(g.subject, []);
+      bySubject.get(g.subject)!.push(g);
+    });
+    return [...bySubject.entries()]
+      .map(([subject, recs]) => {
+        const sorted = recs.slice().sort((a, b) => {
+          const ia = selectedModule ? parseRuDateInModule(a.grade_date, selectedModule) || "" : "";
+          const ib = selectedModule ? parseRuDateInModule(b.grade_date, selectedModule) || "" : "";
+          return ia.localeCompare(ib);
+        });
+        return {
+          subject,
+          grades: sorted.map(g => ({
+            date: g.grade_date,
+            label: gradeLabel(g.grade, g.grade_max),
+            percent: gradeToPercent(g.grade, g.grade_max),
+            comment: g.comment,
+            isFinal: g.is_final,
+          })),
+          avgPct: Math.round(sorted.reduce((sum, g) => sum + gradeToPercent(g.grade, g.grade_max), 0) / sorted.length),
+        };
+      })
+      .sort((a, b) => a.subject.localeCompare(b.subject, "ru"));
+  }, [moduleGrades, selectedModule]);
+
+  const exportSummaryPdf = (studentId: number, studentName: string) => {
+    exportGradesSummaryToPdf(
+      {
+        name: studentName,
+        className: cls.display_name || cls.name,
+        moduleName: selectedModule?.name,
+        modulePeriod: selectedModule
+          ? `${new Date(selectedModule.date_start).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })} — ${new Date(selectedModule.date_end).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}`
+          : undefined,
+      },
+      buildSubjectSummary(studentId)
+    );
+  };
+
   return (
     <div>
       <SectionTitle emoji="⭐" title={`Отметки · ${cls.display_name || cls.name}`} sub={user.role === "parent" ? user.child : undefined} />
@@ -2652,6 +2697,31 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
               <p className="text-xs -mt-2" style={{ color: "#9B6A7A" }}>
                 {new Date(selectedModule.date_start).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })} — {new Date(selectedModule.date_end).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
               </p>
+            )}
+            {user.role === "parent" && (
+              <button onClick={() => user.child_id && exportSummaryPdf(user.child_id, user.child || "Ученик")}
+                disabled={!user.child_id || childSubjectStats.length === 0}
+                className="flex items-center justify-center gap-1.5 w-full px-3 py-2 rounded-xl text-xs font-medium transition-all hover:opacity-80 disabled:opacity-40"
+                style={{ background: "#8B1A2F", color: "white" }}>
+                <Icon name="FileDown" size={13} /> Скачать сводку в PDF
+              </button>
+            )}
+            {user.role === "teacher" && (
+              <div className="flex gap-2">
+                <Select value={exportStudentId} onChange={e => setExportStudentId(e.target.value)}>
+                  <option value="">Выберите ученика для экспорта</option>
+                  {students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                </Select>
+                <button onClick={() => {
+                  const st = students.find(s => s.id === Number(exportStudentId));
+                  if (st) exportSummaryPdf(st.id, st.full_name);
+                }}
+                  disabled={!exportStudentId}
+                  className="flex items-center justify-center gap-1.5 px-3 rounded-xl text-xs font-medium shrink-0 transition-all hover:opacity-80 disabled:opacity-40"
+                  style={{ background: "#8B1A2F", color: "white" }}>
+                  <Icon name="FileDown" size={13} /> PDF
+                </button>
+              </div>
             )}
             {user.role === "parent" && childSubjectStats.length > 0 ? (
               <div className="space-y-3">
