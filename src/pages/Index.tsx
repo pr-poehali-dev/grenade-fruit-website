@@ -503,7 +503,7 @@ export default function Index() {
                   {unread > 0 && <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full flex items-center justify-center text-white font-bold animate-notification-pop" style={{ background: "#8B1A2F", fontSize: 9 }}>{unread}</span>}
                 </button>
                 {showNotifs && (
-                  <div className="absolute right-0 top-11 w-72 rounded-2xl shadow-2xl overflow-hidden z-50 animate-slide-up" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.12)" }}>
+                  <div className="fixed sm:absolute right-4 sm:right-0 top-16 sm:top-11 rounded-2xl shadow-2xl overflow-hidden z-50 animate-slide-up" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.12)", width: "min(288px, calc(100vw - 2rem))" }}>
                     <div className="flex items-center justify-between px-4 py-2.5 border-b" style={{ borderColor: "rgba(139,26,47,0.08)" }}>
                       <span style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif", fontSize: 18, fontWeight: 700 }}>Уведомления</span>
                       {unread > 0 && <button onClick={markAllRead} className="text-xs" style={{ color: "#8B1A2F" }}>Прочитать все</button>}
