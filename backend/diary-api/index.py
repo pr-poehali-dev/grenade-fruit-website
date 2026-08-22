@@ -1451,6 +1451,9 @@ def handle_get_elective_students():
     return ok([dict(r) for r in rows])
 
 
+VALID_ELECTIVE_LESSON_SLOTS = ("0", "5", "6", "7")
+
+
 def handle_add_elective_student(body):
     student_id = body.get("student_id")
     subject = (body.get("subject") or "").strip()
@@ -1460,7 +1463,7 @@ def handle_add_elective_student(body):
         return err("student_id and subject required")
     if not isinstance(days, list) or not days:
         days = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница"]
-    if lesson_slot not in ("0", "5"):
+    if lesson_slot not in VALID_ELECTIVE_LESSON_SLOTS:
         lesson_slot = "5"
     conn = get_conn()
     cur = conn.cursor()
@@ -1491,7 +1494,7 @@ def handle_remove_elective_student(body):
 
 
 def handle_update_elective_student_schedule(body):
-    """Обновляет дни недели и номер урока (0 или 5) для записи ученика на факультатив."""
+    """Обновляет дни недели и номер урока (0, 5, 6 или 7) для записи ученика на факультатив."""
     student_id = body.get("student_id")
     subject = (body.get("subject") or "").strip()
     days = body.get("days")
@@ -1507,8 +1510,8 @@ def handle_update_elective_student_schedule(body):
         params.append(days)
     if lesson_slot is not None:
         lesson_slot = str(lesson_slot)
-        if lesson_slot not in ("0", "5"):
-            return err("lesson_slot must be 0 or 5")
+        if lesson_slot not in VALID_ELECTIVE_LESSON_SLOTS:
+            return err("lesson_slot must be 0, 5, 6 or 7")
         sets.append("lesson_slot = %s")
         params.append(lesson_slot)
     if not sets:

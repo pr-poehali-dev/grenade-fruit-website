@@ -2258,7 +2258,10 @@ interface ElectiveStudent { elective_id: number; subject: string; student_id: nu
 const LESSON_SLOTS = [
   { value: "0", label: "0 урок" },
   { value: "5", label: "5 урок" },
+  { value: "6", label: "6 урок" },
+  { value: "7", label: "7 урок" },
 ];
+const LESSON_SLOT_TIME: Record<string, string> = { "6": "15:30–16:30", "7": "16:30–17:30" };
 function ElectivesTab({ classes }: { classes: SchoolClass[] }) {
   const [students, setStudents] = useState<ElectiveStudent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2494,9 +2497,10 @@ function ElectivesTab({ classes }: { classes: SchoolClass[] }) {
                   })}
                 </div>
                 <p className="text-xs font-medium pt-1" style={{ color: "#9B6A7A" }}>Урок</p>
-                <div className="flex gap-1.5">
+                <div className="flex gap-1.5 flex-wrap">
                   {LESSON_SLOTS.map(slot => {
                     const active = pickerSlot === slot.value;
+                    const time = LESSON_SLOT_TIME[slot.value];
                     return (
                       <button key={slot.value} type="button" onClick={() => setPickerSlot(slot.value)}
                         className="px-3 py-1 rounded-lg text-xs font-medium transition-colors"
@@ -2505,7 +2509,7 @@ function ElectivesTab({ classes }: { classes: SchoolClass[] }) {
                           color: active ? "white" : "#3D1520",
                           border: "1.5px solid " + (active ? "transparent" : "rgba(139,26,47,0.15)"),
                         }}>
-                        {slot.label}
+                        {slot.label}{time ? ` · ${time}` : ""}
                       </button>
                     );
                   })}
