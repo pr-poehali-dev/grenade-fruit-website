@@ -1227,12 +1227,21 @@ def handle_get_notifications(params):
 
 
 def handle_mark_read(body):
+    """Отмечает уведомления прочитанными. Если передан notification_id — только его,
+    иначе все уведомления родителя (кнопка «Прочитать все»)."""
     parent_id = body.get("parent_id")
+    notification_id = body.get("notification_id")
     if not parent_id:
         return err("parent_id required")
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(f"UPDATE {SCHEMA}.notifications SET is_read = true WHERE parent_id = %s", (parent_id,))
+    if notification_id:
+        cur.execute(
+            f"UPDATE {SCHEMA}.notifications SET is_read = true WHERE parent_id = %s AND id = %s",
+            (parent_id, notification_id)
+        )
+    else:
+        cur.execute(f"UPDATE {SCHEMA}.notifications SET is_read = true WHERE parent_id = %s", (parent_id,))
     conn.commit()
     conn.close()
     return ok({"ok": True})

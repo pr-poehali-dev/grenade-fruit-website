@@ -393,6 +393,18 @@ export default function Index() {
     setNotifs(prev => prev.map(n => ({ ...n, is_read: true })));
   };
 
+  const NOTIF_TAB: Record<string, Tab> = { grade: "grades", homework: "homework", recommendation: "recommendations", attendance: "attendance", file: "homework" };
+  const openNotification = (n: Notification) => {
+    if (!user) return;
+    setShowNotifs(false);
+    if (!n.is_read) {
+      setNotifs(prev => prev.map(x => x.id === n.id ? { ...x, is_read: true } : x));
+      api("mark_read", "POST", { parent_id: user.id, notification_id: n.id });
+    }
+    const targetTab = NOTIF_TAB[n.type];
+    if (targetTab) goTab(targetTab);
+  };
+
   const [exportingMySchedule, setExportingMySchedule] = useState(false);
   const exportMySchedule = async () => {
     if (!user) return;
@@ -511,14 +523,16 @@ export default function Index() {
                     <div className="max-h-64 overflow-y-auto">
                       {notifs.length === 0 && <p className="text-sm text-center py-6" style={{ color: "#9B6A7A" }}>Нет уведомлений</p>}
                       {notifs.map(n => (
-                        <div key={n.id} className="flex gap-3 px-4 py-3 border-b" style={{ borderColor: "rgba(139,26,47,0.05)", background: n.is_read ? "white" : "rgba(139,26,47,0.03)" }}>
+                        <button key={n.id} onClick={() => openNotification(n)}
+                          className="w-full flex gap-3 px-4 py-3 border-b text-left hover:bg-pink-50 transition-colors"
+                          style={{ borderColor: "rgba(139,26,47,0.05)", background: n.is_read ? "white" : "rgba(139,26,47,0.03)" }}>
                           <span className="text-base shrink-0">{NOTIF_EMOJI[n.type] || "📌"}</span>
                           <div className="flex-1 min-w-0">
                             <p className="text-sm leading-snug" style={{ color: "#3D1520", fontWeight: n.is_read ? 400 : 600 }}>{n.text}</p>
                             <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{new Date(n.created_at).toLocaleDateString("ru")}</p>
                           </div>
                           {!n.is_read && <div className="w-2 h-2 rounded-full mt-1.5 shrink-0" style={{ background: "#8B1A2F" }} />}
-                        </div>
+                        </button>
                       ))}
                     </div>
                   </div>
