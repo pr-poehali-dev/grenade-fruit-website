@@ -89,6 +89,22 @@
       "expectedStatus": 400,
       "expectedBody": {"error": "student_id required"},
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get elective students",
+      "method": "GET",
+      "path": "/?action=get_elective_students",
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Add elective student missing fields",
+      "method": "POST",
+      "path": "/?action=add_elective_student",
+      "body": {},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "student_id and subject required"},
+      "bodyMatcher": "partial"
     }
   ]
 }

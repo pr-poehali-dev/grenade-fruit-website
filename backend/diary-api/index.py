@@ -161,6 +161,14 @@ def handler(event: dict, context) -> dict:
         return handle_remove_extended_day_student(body)
     if action == "update_extended_day_student_days":
         return handle_update_extended_day_student_days(body)
+    if action == "get_elective_students":
+        return handle_get_elective_students()
+    if action == "add_elective_student":
+        return handle_add_elective_student(body)
+    if action == "remove_elective_student":
+        return handle_remove_elective_student(body)
+    if action == "get_elective_subjects_for_student":
+        return handle_get_elective_subjects_for_student(params)
 
     # Healthcheck
     if method == "GET" and not action:
@@ -1410,3 +1418,70 @@ def handle_update_extended_day_student_days(body):
     if not row:
         return err("Ученик не найден в продлёнке", 404)
     return ok(dict(row))
+
+
+# ── Electives (Факультативы) ─────────────────────────────
+def handle_get_elective_students():
+    """Список учеников, записанных на факультативы, сгруппированных по предмету и классу."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"""SELECT es.id as elective_id, es.subject, s.id as student_id, s.full_name,
+                   s.class_id, c.display_name as class_display_name, c.name as class_name,
+                   c.grade, c.letter
+            FROM {SCHEMA}.elective_students es
+            JOIN {SCHEMA}.students s ON s.id = es.student_id
+            LEFT JOIN {SCHEMA}.classes c ON c.id = s.class_id
+            WHERE s.is_archived = false
+            ORDER BY es.subject, c.grade, c.letter, s.full_name"""
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return ok([dict(r) for r in rows])
+
+
+def handle_add_elective_student(body):
+    student_id = body.get("student_id")
+    subject = (body.get("subject") or "").strip()
+    if not student_id or not subject:
+        return err("student_id and subject required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"""INSERT INTO {SCHEMA}.elective_students (student_id, subject) VALUES (%s, %s)
+            ON CONFLICT (student_id, subject) DO NOTHING RETURNING *""",
+        (student_id, subject)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return ok({"ok": True, "already_added": True})
+    return ok(dict(row), 201)
+
+
+def handle_remove_elective_student(body):
+    student_id = body.get("student_id")
+    subject = (body.get("subject") or "").strip()
+    if not student_id or not subject:
+        return err("student_id and subject required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"DELETE FROM {SCHEMA}.elective_students WHERE student_id = %s AND subject = %s", (student_id, subject))
+    conn.commit()
+    conn.close()
+    return ok({"ok": True})
+
+
+def handle_get_elective_subjects_for_student(params):
+    """Возвращает список названий факультативов, на которые записан конкретный ученик —
+    используется для фильтрации расписания и PDF-экспорта у родителя."""
+    student_id = params.get("student_id")
+    if not student_id:
+        return err("student_id required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"SELECT subject FROM {SCHEMA}.elective_students WHERE student_id = %s", (student_id,))
+    rows = cur.fetchall()
+    conn.close()
+    return ok([r["subject"] for r in rows])
