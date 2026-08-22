@@ -167,6 +167,8 @@ def handler(event: dict, context) -> dict:
         return handle_add_elective_student(body)
     if action == "remove_elective_student":
         return handle_remove_elective_student(body)
+    if action == "update_elective_student_schedule":
+        return handle_update_elective_student_schedule(body)
     if action == "get_elective_subjects_for_student":
         return handle_get_elective_subjects_for_student(params)
 
@@ -1428,7 +1430,7 @@ def handle_get_elective_students():
     cur.execute(
         f"""SELECT es.id as elective_id, es.subject, s.id as student_id, s.full_name,
                    s.class_id, c.display_name as class_display_name, c.name as class_name,
-                   c.grade, c.letter
+                   c.grade, c.letter, es.days, es.lesson_slot
             FROM {SCHEMA}.elective_students es
             JOIN {SCHEMA}.students s ON s.id = es.student_id
             LEFT JOIN {SCHEMA}.classes c ON c.id = s.class_id
@@ -1443,14 +1445,20 @@ def handle_get_elective_students():
 def handle_add_elective_student(body):
     student_id = body.get("student_id")
     subject = (body.get("subject") or "").strip()
+    days = body.get("days")
+    lesson_slot = str(body.get("lesson_slot") or "5")
     if not student_id or not subject:
         return err("student_id and subject required")
+    if not isinstance(days, list) or not days:
+        days = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница"]
+    if lesson_slot not in ("0", "5"):
+        lesson_slot = "5"
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        f"""INSERT INTO {SCHEMA}.elective_students (student_id, subject) VALUES (%s, %s)
+        f"""INSERT INTO {SCHEMA}.elective_students (student_id, subject, days, lesson_slot) VALUES (%s, %s, %s, %s)
             ON CONFLICT (student_id, subject) DO NOTHING RETURNING *""",
-        (student_id, subject)
+        (student_id, subject, days, lesson_slot)
     )
     row = cur.fetchone()
     conn.commit()
@@ -1471,6 +1479,42 @@ def handle_remove_elective_student(body):
     conn.commit()
     conn.close()
     return ok({"ok": True})
+
+
+def handle_update_elective_student_schedule(body):
+    """Обновляет дни недели и номер урока (0 или 5) для записи ученика на факультатив."""
+    student_id = body.get("student_id")
+    subject = (body.get("subject") or "").strip()
+    days = body.get("days")
+    lesson_slot = body.get("lesson_slot")
+    if not student_id or not subject:
+        return err("student_id and subject required")
+    conn = get_conn()
+    cur = conn.cursor()
+    sets = []
+    params = []
+    if isinstance(days, list):
+        sets.append("days = %s")
+        params.append(days)
+    if lesson_slot is not None:
+        lesson_slot = str(lesson_slot)
+        if lesson_slot not in ("0", "5"):
+            return err("lesson_slot must be 0 or 5")
+        sets.append("lesson_slot = %s")
+        params.append(lesson_slot)
+    if not sets:
+        return err("nothing to update")
+    params.extend([student_id, subject])
+    cur.execute(
+        f"UPDATE {SCHEMA}.elective_students SET {', '.join(sets)} WHERE student_id = %s AND subject = %s RETURNING *",
+        tuple(params)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return err("Запись не найдена", 404)
+    return ok(dict(row))
 
 
 def handle_get_elective_subjects_for_student(params):

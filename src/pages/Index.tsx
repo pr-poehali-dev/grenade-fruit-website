@@ -537,25 +537,24 @@ export default function Index() {
         </div>
       </header>
 
-      <div className="max-w-6xl mx-auto px-4 py-5 flex gap-5">
-        {/* Left sidebar: class picker */}
+      <div className={`max-w-6xl mx-auto px-4 py-5 flex gap-5 ${user.role === "parent" ? "justify-center" : ""}`}>
+        {/* Left sidebar: class picker (teachers only — parents have a single class) */}
+        {user.role === "teacher" && (
         <aside className="w-44 shrink-0 hidden md:block">
           <div className="sticky top-20 space-y-4">
             {/* Моё расписание */}
-            {user.role === "teacher" && (
-              <div>
-                <button onClick={() => { setSelectedClass(null); goTab("my_schedule"); }}
-                  className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.02] flex items-center gap-2"
-                  style={{
-                    background: tab === "my_schedule" ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
-                    color: tab === "my_schedule" ? "white" : "#3D1520",
-                    border: "1.5px solid rgba(139,26,47,0.12)",
-                    boxShadow: tab === "my_schedule" ? "0 4px 12px rgba(139,26,47,0.25)" : "none",
-                  }}>
-                  <Icon name="CalendarDays" size={15} /> Моё расписание
-                </button>
-              </div>
-            )}
+            <div>
+              <button onClick={() => { setSelectedClass(null); goTab("my_schedule"); }}
+                className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.02] flex items-center gap-2"
+                style={{
+                  background: tab === "my_schedule" ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+                  color: tab === "my_schedule" ? "white" : "#3D1520",
+                  border: "1.5px solid rgba(139,26,47,0.12)",
+                  boxShadow: tab === "my_schedule" ? "0 4px 12px rgba(139,26,47,0.25)" : "none",
+                }}>
+                <Icon name="CalendarDays" size={15} /> Моё расписание
+              </button>
+            </div>
             {/* Классы */}
             <div>
               <p className="text-xs font-semibold uppercase tracking-wider mb-2 px-1" style={{ color: "#9B6A7A" }}>Классы</p>
@@ -572,30 +571,26 @@ export default function Index() {
                     {cl.display_name || `${cl.grade} класс`}
                   </button>
                 ))}
-                {user.role === "teacher" && (
-                  <button onClick={() => { setSelectedClass(null); goTab("extended_day"); }}
-                    className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.02] flex items-center gap-2"
-                    style={{
-                      background: tab === "extended_day" ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
-                      color: tab === "extended_day" ? "white" : "#3D1520",
-                      border: "1.5px solid rgba(139,26,47,0.12)",
-                      boxShadow: tab === "extended_day" ? "0 4px 12px rgba(139,26,47,0.25)" : "none",
-                    }}>
-                    <Icon name="Sun" size={15} /> Продлёнка
-                  </button>
-                )}
-                {user.role === "teacher" && (
-                  <button onClick={() => { setSelectedClass(null); goTab("electives"); }}
-                    className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.02] flex items-center gap-2"
-                    style={{
-                      background: tab === "electives" ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
-                      color: tab === "electives" ? "white" : "#3D1520",
-                      border: "1.5px solid rgba(139,26,47,0.12)",
-                      boxShadow: tab === "electives" ? "0 4px 12px rgba(139,26,47,0.25)" : "none",
-                    }}>
-                    <Icon name="Puzzle" size={15} /> Факультативы
-                  </button>
-                )}
+                <button onClick={() => { setSelectedClass(null); goTab("extended_day"); }}
+                  className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.02] flex items-center gap-2"
+                  style={{
+                    background: tab === "extended_day" ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+                    color: tab === "extended_day" ? "white" : "#3D1520",
+                    border: "1.5px solid rgba(139,26,47,0.12)",
+                    boxShadow: tab === "extended_day" ? "0 4px 12px rgba(139,26,47,0.25)" : "none",
+                  }}>
+                  <Icon name="Sun" size={15} /> Продлёнка
+                </button>
+                <button onClick={() => { setSelectedClass(null); goTab("electives"); }}
+                  className="w-full text-left px-3 py-2.5 rounded-xl text-sm font-medium transition-all hover:scale-[1.02] flex items-center gap-2"
+                  style={{
+                    background: tab === "electives" ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+                    color: tab === "electives" ? "white" : "#3D1520",
+                    border: "1.5px solid rgba(139,26,47,0.12)",
+                    boxShadow: tab === "electives" ? "0 4px 12px rgba(139,26,47,0.25)" : "none",
+                  }}>
+                  <Icon name="Puzzle" size={15} /> Факультативы
+                </button>
               </div>
             </div>
             {/* Гранат */}
@@ -603,9 +598,10 @@ export default function Index() {
               className="w-full rounded-2xl object-cover" style={{ opacity: 0.6, maxHeight: 120, boxShadow: "0 4px 16px rgba(139,26,47,0.15)" }} alt="" />
           </div>
         </aside>
+        )}
 
         {/* Main area */}
-        <div className="flex-1 min-w-0 pb-24 md:pb-0">
+        <div className={`flex-1 min-w-0 pb-24 md:pb-0 ${user.role === "parent" ? "max-w-2xl mx-auto" : ""}`}>
           {tab === "my_schedule" && user.role === "teacher" ? (
             <MyScheduleTab user={user} classes={classes} />
           ) : tab === "extended_day" && user.role === "teacher" ? (
@@ -2244,7 +2240,11 @@ function ExtendedDayTab({ classes }: { classes: SchoolClass[] }) {
 }
 
 // ─── Electives Tab (Факультативы) ───────────────────────────
-interface ElectiveStudent { elective_id: number; subject: string; student_id: number; full_name: string; class_id: number; class_display_name?: string; class_name?: string; grade: number; letter: string; }
+interface ElectiveStudent { elective_id: number; subject: string; student_id: number; full_name: string; class_id: number; class_display_name?: string; class_name?: string; grade: number; letter: string; days?: string[]; lesson_slot?: string; }
+const LESSON_SLOTS = [
+  { value: "0", label: "0 урок" },
+  { value: "5", label: "5 урок" },
+];
 function ElectivesTab({ classes }: { classes: SchoolClass[] }) {
   const [students, setStudents] = useState<ElectiveStudent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -2255,6 +2255,9 @@ function ElectivesTab({ classes }: { classes: SchoolClass[] }) {
   const [loadingClassStudents, setLoadingClassStudents] = useState(false);
   const [saving, setSaving] = useState<number | null>(null);
   const [activeSubject, setActiveSubject] = useState<string | null>(null);
+  const [pickerDays, setPickerDays] = useState<string[]>(DAYS);
+  const [pickerSlot, setPickerSlot] = useState<string>("5");
+  const [savingSchedule, setSavingSchedule] = useState<number | null>(null);
 
   const sortedClasses = useMemo(() => [...classes].sort((a, b) => a.grade - b.grade), [classes]);
 
@@ -2300,7 +2303,7 @@ function ElectivesTab({ classes }: { classes: SchoolClass[] }) {
     [students, pickerSubject]
   );
 
-  const openAdd = () => { setShowAdd(true); setPickerSubject(activeSubject); setPickerClassId(null); setClassStudents([]); };
+  const openAdd = () => { setShowAdd(true); setPickerSubject(activeSubject); setPickerClassId(null); setClassStudents([]); setPickerDays(DAYS); setPickerSlot("5"); };
 
   const pickClass = async (classId: number) => {
     setPickerClassId(classId);
@@ -2310,10 +2313,14 @@ function ElectivesTab({ classes }: { classes: SchoolClass[] }) {
     setLoadingClassStudents(false);
   };
 
+  const togglePickerDay = (day: string) => {
+    setPickerDays(prev => prev.includes(day) ? prev.filter(d => d !== day) : [...prev, day]);
+  };
+
   const addStudent = async (studentId: number) => {
     if (!pickerSubject) return;
     setSaving(studentId);
-    await api("add_elective_student", "POST", { student_id: studentId, subject: pickerSubject });
+    await api("add_elective_student", "POST", { student_id: studentId, subject: pickerSubject, days: pickerDays.length > 0 ? pickerDays : DAYS, lesson_slot: pickerSlot });
     setSaving(null);
     setActiveSubject(pickerSubject);
     load();
@@ -2323,6 +2330,22 @@ function ElectivesTab({ classes }: { classes: SchoolClass[] }) {
     if (!confirm("Убрать ученика с факультатива?")) return;
     await api("remove_elective_student", "POST", { student_id: studentId, subject });
     load();
+  };
+
+  const toggleStudentDay = async (s: ElectiveStudent, day: string) => {
+    const currentDays = s.days && s.days.length > 0 ? s.days : DAYS;
+    const nextDays = currentDays.includes(day) ? currentDays.filter(d => d !== day) : [...currentDays, day];
+    setSavingSchedule(s.student_id);
+    setStudents(prev => prev.map(st => st.student_id === s.student_id && st.subject === s.subject ? { ...st, days: nextDays } : st));
+    await api("update_elective_student_schedule", "POST", { student_id: s.student_id, subject: s.subject, days: nextDays });
+    setSavingSchedule(null);
+  };
+
+  const setStudentSlot = async (s: ElectiveStudent, slot: string) => {
+    setSavingSchedule(s.student_id);
+    setStudents(prev => prev.map(st => st.student_id === s.student_id && st.subject === s.subject ? { ...st, lesson_slot: slot } : st));
+    await api("update_elective_student_schedule", "POST", { student_id: s.student_id, subject: s.subject, lesson_slot: slot });
+    setSavingSchedule(null);
   };
 
   if (loading) return <Loader />;
@@ -2361,17 +2384,56 @@ function ElectivesTab({ classes }: { classes: SchoolClass[] }) {
                   {classById.get(classId) || group[0]?.class_display_name || group[0]?.class_name || "—"}
                 </div>
                 <div className="space-y-2">
-                  {group.map(s => (
-                    <div key={s.elective_id} className="flex items-center gap-3 p-3 rounded-2xl" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.07)" }}>
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0" style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)", color: "white" }}>
-                        {s.full_name.charAt(0)}
+                  {group.map(s => {
+                    const currentDays = s.days && s.days.length > 0 ? s.days : DAYS;
+                    const currentSlot = s.lesson_slot || "5";
+                    return (
+                    <div key={s.elective_id} className="p-3 rounded-2xl" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.07)" }}>
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold shrink-0" style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)", color: "white" }}>
+                          {s.full_name.charAt(0)}
+                        </div>
+                        <p className="font-medium text-sm flex-1" style={{ color: "#3D1520" }}>{s.full_name}</p>
+                        <button onClick={() => removeStudent(s.student_id, s.subject)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
+                          <Icon name="Trash2" size={13} className="text-red-400" />
+                        </button>
                       </div>
-                      <p className="font-medium text-sm flex-1" style={{ color: "#3D1520" }}>{s.full_name}</p>
-                      <button onClick={() => removeStudent(s.student_id, s.subject)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
-                        <Icon name="Trash2" size={13} className="text-red-400" />
-                      </button>
+                      <div className="flex items-center gap-1 mt-2 flex-wrap">
+                        {DAYS.map(day => {
+                          const active = currentDays.includes(day);
+                          return (
+                            <button key={day} disabled={savingSchedule === s.student_id}
+                              onClick={() => toggleStudentDay(s, day)}
+                              className="px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors disabled:opacity-50"
+                              style={{
+                                background: active ? "#F5E0E5" : "transparent",
+                                color: active ? "#8B1A2F" : "#B8909B",
+                                border: "1px solid " + (active ? "rgba(139,26,47,0.2)" : "rgba(139,26,47,0.1)"),
+                              }}>
+                              {DAY_ABBR[day] || day.slice(0, 2)}
+                            </button>
+                          );
+                        })}
+                        <span className="mx-1 h-3 w-px" style={{ background: "rgba(139,26,47,0.15)" }} />
+                        {LESSON_SLOTS.map(slot => {
+                          const active = currentSlot === slot.value;
+                          return (
+                            <button key={slot.value} disabled={savingSchedule === s.student_id}
+                              onClick={() => setStudentSlot(s, slot.value)}
+                              className="px-2 py-0.5 rounded-md text-[10px] font-medium transition-colors disabled:opacity-50"
+                              style={{
+                                background: active ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "transparent",
+                                color: active ? "white" : "#B8909B",
+                                border: "1px solid " + (active ? "rgba(139,26,47,0.2)" : "rgba(139,26,47,0.1)"),
+                              }}>
+                              {slot.label}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -2395,11 +2457,47 @@ function ElectivesTab({ classes }: { classes: SchoolClass[] }) {
               ))}
             </div>
           ) : !pickerClassId ? (
-            <div className="space-y-1">
-              <button onClick={() => setPickerSubject(null)} className="flex items-center gap-1 text-xs mb-2" style={{ color: "#8B1A2F" }}>
+            <div className="space-y-3">
+              <button onClick={() => setPickerSubject(null)} className="flex items-center gap-1 text-xs" style={{ color: "#8B1A2F" }}>
                 <Icon name="ChevronLeft" size={14} /> Назад к факультативам
               </button>
-              <p className="text-xs mb-2" style={{ color: "#9B6A7A" }}>{pickerSubject} · выберите класс</p>
+              <div className="p-3 rounded-xl space-y-2" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.1)" }}>
+                <p className="text-xs font-medium" style={{ color: "#9B6A7A" }}>Дни занятий</p>
+                <div className="flex gap-1.5 flex-wrap">
+                  {DAYS.map(day => {
+                    const active = pickerDays.includes(day);
+                    return (
+                      <button key={day} type="button" onClick={() => togglePickerDay(day)}
+                        className="px-2.5 py-1 rounded-lg text-xs font-medium transition-colors"
+                        style={{
+                          background: active ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+                          color: active ? "white" : "#3D1520",
+                          border: "1.5px solid " + (active ? "transparent" : "rgba(139,26,47,0.15)"),
+                        }}>
+                        {DAY_ABBR[day] || day.slice(0, 2)}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-xs font-medium pt-1" style={{ color: "#9B6A7A" }}>Урок</p>
+                <div className="flex gap-1.5">
+                  {LESSON_SLOTS.map(slot => {
+                    const active = pickerSlot === slot.value;
+                    return (
+                      <button key={slot.value} type="button" onClick={() => setPickerSlot(slot.value)}
+                        className="px-3 py-1 rounded-lg text-xs font-medium transition-colors"
+                        style={{
+                          background: active ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+                          color: active ? "white" : "#3D1520",
+                          border: "1.5px solid " + (active ? "transparent" : "rgba(139,26,47,0.15)"),
+                        }}>
+                        {slot.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <p className="text-xs" style={{ color: "#9B6A7A" }}>{pickerSubject} · выберите класс</p>
               {sortedClasses.map(cl => (
                 <button key={cl.id} onClick={() => pickClass(cl.id)}
                   className="w-full text-left px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-pink-50 transition-colors"
