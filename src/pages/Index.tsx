@@ -18,7 +18,7 @@ async function api(action: string, method = "GET", body?: object) {
 
 // ─── Types ────────────────────────────────────────────────
 type Role = "teacher" | "parent";
-type Tab = "classes" | "parents" | "schedule" | "homework" | "grades" | "attendance" | "recommendations" | "my_schedule" | "extended_day" | "electives";
+type Tab = "classes" | "parents" | "schedule" | "homework" | "grades" | "attendance" | "recommendations" | "my_schedule" | "extended_day" | "electives" | "archive";
 
 interface User { id: number; login: string; role: Role; display_name: string; child?: string; child_id?: number; class_id?: number; email?: string; }
 interface SchoolClass { id: number; name: string; grade: number; letter: string; display_name?: string; }
@@ -69,6 +69,35 @@ function percentLevel(pct: number): { label: string; color: string; bg: string; 
   if (pct >= 70) return LEVELS[1];
   if (pct >= 50) return LEVELS[2];
   return LEVELS[3];
+}
+
+// ─── Дата с русским месяцем без года → ISO (для срока сдачи ДЗ) ──
+const RU_MONTHS: Record<string, number> = {
+  "января": 0, "февраля": 1, "марта": 2, "апреля": 3, "мая": 4, "июня": 5,
+  "июля": 6, "августа": 7, "сентября": 8, "октября": 9, "ноября": 10, "декабря": 11,
+};
+// due_date хранится без года ("14 мая") — подбираем ближайший к сегодня год (прошлый/текущий/следующий)
+function parseRuDateGuessYear(dateStr: string, refDate: Date = new Date()): string | null {
+  const parts = (dateStr || "").trim().toLowerCase().split(" ");
+  if (parts.length < 2) return null;
+  const day = parseInt(parts[0], 10);
+  const month = RU_MONTHS[parts[1]];
+  if (isNaN(day) || month === undefined) return null;
+  const refYear = refDate.getFullYear();
+  let best: { iso: string; diff: number } | null = null;
+  for (const year of [refYear - 1, refYear, refYear + 1]) {
+    const d = new Date(year, month, day);
+    if (d.getMonth() !== month) continue;
+    const diff = Math.abs(d.getTime() - refDate.getTime());
+    const iso = `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    if (!best || diff < best.diff) best = { iso, diff };
+  }
+  return best ? best.iso : null;
+}
+function isHomeworkOverdue(dueDate: string): boolean {
+  const iso = parseRuDateGuessYear(dueDate);
+  if (!iso) return false;
+  return iso < new Date().toISOString().slice(0, 10);
 }
 
 function gradeLabel(grade: number, gradeMax?: number | null): string {
@@ -442,6 +471,7 @@ export default function Index() {
     { id: "grades" as Tab, label: "Отметки", emoji: "⭐" },
     { id: "attendance" as Tab, label: "Явка", emoji: "🚸" },
     { id: "recommendations" as Tab, label: "Советы", emoji: "💬" },
+    { id: "archive" as Tab, label: "Архив", emoji: "🗄️" },
   ];
 
   return (
@@ -710,6 +740,7 @@ export default function Index() {
                 {tab === "grades" && <GradesTab cls={selectedClass} user={user} />}
                 {tab === "attendance" && <AttendanceTab cls={selectedClass} user={user} />}
                 {tab === "recommendations" && <RecsTab cls={selectedClass} user={user} />}
+                {tab === "archive" && <ArchiveTab cls={selectedClass} />}
                 {tab === "classes" && user.role === "teacher" && <StudentsTab cls={selectedClass} />}
                 {tab === "parents" && user.role === "teacher" && <ParentsTab cls={selectedClass} />}
               </div>
@@ -2772,11 +2803,55 @@ function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
   );
 }
 
+// ─── Archive Tab (просроченные ДЗ выбранного класса) ─────────
+function ArchiveTab({ cls }: { cls: SchoolClass }) {
+  const [items, setItems] = useState<Homework[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const data = await api(`get_homework&class_id=${cls.id}`);
+    if (Array.isArray(data)) setItems((data as Homework[]).filter(hw => isHomeworkOverdue(hw.due_date)));
+    setLoading(false);
+  }, [cls.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <div>
+      <SectionTitle emoji="🗄️" title={`Архив ДЗ · ${cls.display_name || cls.name}`} sub={`${items.length} заданий с истёкшим сроком`} />
+      {loading ? <Loader /> : (
+        <div className="space-y-3">
+          {items.length === 0 && <Empty text="Просроченных заданий нет" />}
+          {items.map((hw, i) => (
+            <div key={hw.id} className="p-4 rounded-2xl animate-slide-up"
+              style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.05}s`, opacity: 0.85 }}>
+              <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{hw.subject}</span>
+                <span className="text-xs" style={{ color: "#9B6A7A" }}>срок был до {hw.due_date}</span>
+              </div>
+              <p className="text-sm leading-relaxed" style={{ color: "#3D1520" }}>{hw.task}</p>
+              {hw.attachments && hw.attachments.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {hw.attachments.map((a, ai) => (
+                    <a key={ai} href={a.url} target="_blank" rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg font-medium transition-colors hover:opacity-80"
+                      style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>
+                      <Icon name={a.type === "link" ? "Link" : "Paperclip"} size={12} />
+                      {a.name}
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Дата с русским месяцем → ISO (для сопоставления с модулем) ──
-const RU_MONTHS: Record<string, number> = {
-  "января": 0, "февраля": 1, "марта": 2, "апреля": 3, "мая": 4, "июня": 5,
-  "июля": 6, "августа": 7, "сентября": 8, "октября": 9, "ноября": 10, "декабря": 11,
-};
 function parseRuDateInModule(dateStr: string, mod: Module): string | null {
   const parts = (dateStr || "").trim().toLowerCase().split(" ");
   if (parts.length < 2) return null;
