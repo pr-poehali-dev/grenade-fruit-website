@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Icon from "@/components/ui/icon";
 import { exportWeekTemplateToPdf, exportTeacherScheduleToPdf } from "@/lib/exportSchedulePdf";
 import { exportGradesSummaryToPdf } from "@/lib/exportGradesSummaryPdf";
@@ -18,7 +18,7 @@ async function api(action: string, method = "GET", body?: object) {
 
 // ─── Types ────────────────────────────────────────────────
 type Role = "teacher" | "parent";
-type Tab = "classes" | "parents" | "schedule" | "homework" | "grades" | "attendance" | "recommendations" | "my_schedule" | "extended_day" | "electives" | "archive";
+type Tab = "classes" | "parents" | "schedule" | "homework" | "grades" | "attendance" | "recommendations" | "my_schedule" | "extended_day" | "electives" | "archive" | "chat";
 
 interface User { id: number; login: string; role: Role; display_name: string; child?: string; child_id?: number; class_id?: number; email?: string; }
 interface SchoolClass { id: number; name: string; grade: number; letter: string; display_name?: string; }
@@ -35,6 +35,7 @@ interface Grade { id: number; student_id: number; subject: string; grade: number
 interface Attendance { id: number; student_id: number; subject: string; status: "absent" | "late"; comment: string; lesson_date: string; student_name: string; }
 interface Recommendation { id: number; subject: string; text: string; rec_date: string; student_name: string; teacher_name: string; }
 interface Notification { id: number; text: string; type: string; is_read: boolean; created_at: string; }
+interface ChatMessage { id: number; class_id: number; sender_id: number; sender_name: string; sender_role: Role; text: string; created_at: string; }
 
 // ─── Floating seeds ───────────────────────────────────────
 const SEEDS = [
@@ -471,6 +472,7 @@ export default function Index() {
     { id: "grades" as Tab, label: "Отметки", emoji: "⭐" },
     { id: "attendance" as Tab, label: "Явка", emoji: "🚸" },
     { id: "recommendations" as Tab, label: "Советы", emoji: "💬" },
+    { id: "chat" as Tab, label: "Чат", emoji: "🗨️" },
     { id: "archive" as Tab, label: "Архив", emoji: "🗄️" },
   ];
 
@@ -762,6 +764,7 @@ export default function Index() {
                 {tab === "grades" && <GradesTab cls={selectedClass} user={user} />}
                 {tab === "attendance" && <AttendanceTab cls={selectedClass} user={user} />}
                 {tab === "recommendations" && <RecsTab cls={selectedClass} user={user} />}
+                {tab === "chat" && <ChatTab cls={selectedClass} user={user} />}
                 {tab === "archive" && <ArchiveTab cls={selectedClass} />}
                 {tab === "classes" && user.role === "teacher" && <StudentsTab cls={selectedClass} />}
                 {tab === "parents" && user.role === "teacher" && <ParentsTab cls={selectedClass} />}
@@ -2847,6 +2850,129 @@ function ArchiveTab({ cls }: { cls: SchoolClass }) {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Chat Tab (общий чат родителей и учителя класса) ─────────
+function formatChatTime(iso: string): string {
+  const d = new Date(iso.replace(" ", "T"));
+  const now = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  if (sameDay) return d.toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
+  return d.toLocaleDateString("ru", { day: "numeric", month: "short" }) + ", " + d.toLocaleTimeString("ru", { hour: "2-digit", minute: "2-digit" });
+}
+
+function ChatTab({ cls, user }: { cls: SchoolClass; user: User }) {
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const lastIdRef = useRef<number>(0);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const data = await api(`get_chat_messages&class_id=${cls.id}`);
+    if (Array.isArray(data)) {
+      setMessages(data);
+      if (data.length > 0) lastIdRef.current = data[data.length - 1].id;
+    }
+    setLoading(false);
+  }, [cls.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Пуллинг новых сообщений раз в 4 секунды
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      const data = await api(`get_chat_messages&class_id=${cls.id}`);
+      if (Array.isArray(data) && data.length > 0) {
+        const newestId = data[data.length - 1].id;
+        if (newestId !== lastIdRef.current) {
+          lastIdRef.current = newestId;
+          setMessages(data);
+        }
+      }
+    }, 4000);
+    return () => clearInterval(interval);
+  }, [cls.id]);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages.length]);
+
+  const send = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = text.trim();
+    if (!trimmed || sending) return;
+    setSending(true);
+    const senderName = user.role === "teacher" ? (user.display_name || user.login) : `${user.display_name || user.login} (${user.child})`;
+    const res = await api("send_chat_message", "POST", {
+      class_id: cls.id, sender_id: user.id, sender_name: senderName, sender_role: user.role, text: trimmed,
+    });
+    if (res && res.id) {
+      setMessages(m => [...m, res]);
+      lastIdRef.current = res.id;
+      setText("");
+    }
+    setSending(false);
+  };
+
+  return (
+    <div>
+      <SectionTitle emoji="🗨️" title={`Чат класса · ${cls.display_name || cls.name}`} sub="Общий чат для родителей и учителя" />
+      <div className="rounded-2xl flex flex-col" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", height: "60vh", minHeight: 360 }}>
+        <div ref={listRef} className="flex-1 overflow-y-auto p-4 space-y-3">
+          {loading ? <Loader /> : messages.length === 0 ? (
+            <Empty text="Сообщений пока нет — начните обсуждение" />
+          ) : (
+            messages.map(m => {
+              const isMine = m.sender_id === user.id;
+              const isTeacher = m.sender_role === "teacher";
+              return (
+                <div key={m.id} className={`flex ${isMine ? "justify-end" : "justify-start"}`}>
+                  <div className="max-w-[80%]">
+                    {!isMine && (
+                      <p className="text-xs font-semibold mb-0.5 px-1" style={{ color: isTeacher ? "#8B1A2F" : "#9B6A7A" }}>
+                        {isTeacher && "👩‍🏫 "}{m.sender_name}
+                      </p>
+                    )}
+                    <div className="px-3.5 py-2 rounded-2xl"
+                      style={{
+                        background: isMine ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : isTeacher ? "#F5E0E5" : "#FDF6EE",
+                        color: isMine ? "white" : "#3D1520",
+                        border: isMine ? "none" : "1.5px solid rgba(139,26,47,0.08)",
+                        borderBottomRightRadius: isMine ? 4 : undefined,
+                        borderBottomLeftRadius: !isMine ? 4 : undefined,
+                      }}>
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap break-words">{m.text}</p>
+                    </div>
+                    <p className="text-[10px] mt-0.5 px-1" style={{ color: "#9B6A7A", textAlign: isMine ? "right" : "left" }}>{formatChatTime(m.created_at)}</p>
+                  </div>
+                </div>
+              );
+            })
+          )}
+          <div ref={bottomRef} />
+        </div>
+        <form onSubmit={send} className="flex items-end gap-2 p-3 border-t" style={{ borderColor: "rgba(139,26,47,0.08)" }}>
+          <Textarea
+            rows={1}
+            value={text}
+            onChange={e => setText(e.target.value)}
+            onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(e as unknown as React.FormEvent); } }}
+            placeholder="Написать сообщение..."
+            className="flex-1 resize-none"
+          />
+          <button type="submit" disabled={!text.trim() || sending}
+            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-opacity disabled:opacity-40"
+            style={{ background: "#8B1A2F" }}>
+            <Icon name={sending ? "Loader2" : "Send"} size={16} className={sending ? "animate-spin" : ""} style={{ color: "white" }} />
+          </button>
+        </form>
+      </div>
     </div>
   );
 }

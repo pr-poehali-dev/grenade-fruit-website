@@ -105,6 +105,39 @@
       "expectedStatus": 400,
       "expectedBody": {"error": "student_id and subject required"},
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get chat messages missing class_id",
+      "method": "GET",
+      "path": "/?action=get_chat_messages",
+      "expectedStatus": 400,
+      "expectedBody": {"error": "class_id required"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get chat messages for class",
+      "method": "GET",
+      "path": "/?action=get_chat_messages&class_id=1",
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Send chat message missing fields",
+      "method": "POST",
+      "path": "/?action=send_chat_message",
+      "body": {},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "class_id, sender_id, sender_name, sender_role required"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Send chat message success",
+      "method": "POST",
+      "path": "/?action=send_chat_message",
+      "body": {"class_id": 1, "sender_id": 4, "sender_name": "Родитель Петрова", "sender_role": "parent", "text": "Тестовое сообщение"},
+      "expectedStatus": 201,
+      "expectedBody": {"text": "Тестовое сообщение"},
+      "bodyMatcher": "partial"
     }
   ]
 }

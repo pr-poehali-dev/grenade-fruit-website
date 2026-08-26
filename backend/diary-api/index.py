@@ -171,6 +171,10 @@ def handler(event: dict, context) -> dict:
         return handle_update_elective_student_schedule(body)
     if action == "get_elective_subjects_for_student":
         return handle_get_elective_subjects_for_student(params)
+    if action == "get_chat_messages":
+        return handle_get_chat_messages(params)
+    if action == "send_chat_message":
+        return handle_send_chat_message(body)
 
     # Healthcheck
     if method == "GET" and not action:
@@ -1541,3 +1545,59 @@ def handle_get_elective_subjects_for_student(params):
     rows = cur.fetchall()
     conn.close()
     return ok([r["subject"] for r in rows])
+
+
+# ── Chat (общий чат родителей класса) ────────────────────────
+def handle_get_chat_messages(params):
+    """Возвращает сообщения чата класса, отсортированные по времени (старые сверху).
+    Поддерживает пагинацию через before_id — для подгрузки более старых сообщений."""
+    class_id = params.get("class_id")
+    if not class_id:
+        return err("class_id required")
+    before_id = params.get("before_id")
+    limit = 50
+    conn = get_conn()
+    cur = conn.cursor()
+    if before_id:
+        cur.execute(
+            f"""SELECT * FROM {SCHEMA}.chat_messages
+                WHERE class_id = %s AND id < %s
+                ORDER BY id DESC LIMIT %s""",
+            (class_id, before_id, limit)
+        )
+    else:
+        cur.execute(
+            f"""SELECT * FROM {SCHEMA}.chat_messages
+                WHERE class_id = %s
+                ORDER BY id DESC LIMIT %s""",
+            (class_id, limit)
+        )
+    rows = cur.fetchall()
+    conn.close()
+    return ok(list(reversed(rows)))
+
+
+def handle_send_chat_message(body):
+    """Публикует сообщение в общий чат класса от имени учителя или родителя."""
+    class_id = body.get("class_id")
+    sender_id = body.get("sender_id")
+    sender_name = (body.get("sender_name") or "").strip()
+    sender_role = body.get("sender_role")
+    text = (body.get("text") or "").strip()
+    if not class_id or not sender_id or not sender_name or not sender_role:
+        return err("class_id, sender_id, sender_name, sender_role required")
+    if not text:
+        return err("text required")
+    if len(text) > 2000:
+        return err("text too long")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"""INSERT INTO {SCHEMA}.chat_messages (class_id, sender_id, sender_name, sender_role, text)
+            VALUES (%s, %s, %s, %s, %s) RETURNING *""",
+        (class_id, sender_id, sender_name, sender_role, text)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    return ok(dict(row), 201)
