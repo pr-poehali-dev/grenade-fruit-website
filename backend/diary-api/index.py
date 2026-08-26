@@ -175,6 +175,10 @@ def handler(event: dict, context) -> dict:
         return handle_get_chat_messages(params)
     if action == "send_chat_message":
         return handle_send_chat_message(body)
+    if action == "get_chat_unread_count":
+        return handle_get_chat_unread_count(params)
+    if action == "mark_chat_read":
+        return handle_mark_chat_read(body)
 
     # Healthcheck
     if method == "GET" and not action:
@@ -1547,17 +1551,33 @@ def handle_get_elective_subjects_for_student(params):
     return ok([r["subject"] for r in rows])
 
 
-# ── Chat (общий чат родителей класса) ────────────────────────
+# ── Chat (свой чат в каждом классе: родители этого класса + все учителя) ──
+def _parent_belongs_to_class(cur, parent_id, class_id):
+    cur.execute(
+        f"""SELECT 1 FROM {SCHEMA}.parent_students ps
+            JOIN {SCHEMA}.students s ON s.id = ps.student_id
+            WHERE ps.parent_id = %s AND s.class_id = %s LIMIT 1""",
+        (parent_id, class_id)
+    )
+    return cur.fetchone() is not None
+
+
 def handle_get_chat_messages(params):
     """Возвращает сообщения чата класса, отсортированные по времени (старые сверху).
+    Родитель видит только чат класса своего ребёнка, учитель — чат любого класса.
     Поддерживает пагинацию через before_id — для подгрузки более старых сообщений."""
     class_id = params.get("class_id")
     if not class_id:
         return err("class_id required")
+    user_id = params.get("user_id")
+    role = params.get("role")
     before_id = params.get("before_id")
     limit = 50
     conn = get_conn()
     cur = conn.cursor()
+    if role == "parent" and user_id and not _parent_belongs_to_class(cur, user_id, class_id):
+        conn.close()
+        return err("Нет доступа к чату этого класса", 403)
     if before_id:
         cur.execute(
             f"""SELECT * FROM {SCHEMA}.chat_messages
@@ -1578,7 +1598,8 @@ def handle_get_chat_messages(params):
 
 
 def handle_send_chat_message(body):
-    """Публикует сообщение в общий чат класса от имени учителя или родителя."""
+    """Публикует сообщение в чат класса. Писать могут только родители учеников
+    этого класса и учителя (учитель — в любой класс)."""
     class_id = body.get("class_id")
     sender_id = body.get("sender_id")
     sender_name = (body.get("sender_name") or "").strip()
@@ -1592,6 +1613,9 @@ def handle_send_chat_message(body):
         return err("text too long")
     conn = get_conn()
     cur = conn.cursor()
+    if sender_role == "parent" and not _parent_belongs_to_class(cur, sender_id, class_id):
+        conn.close()
+        return err("Нет доступа к чату этого класса", 403)
     cur.execute(
         f"""INSERT INTO {SCHEMA}.chat_messages (class_id, sender_id, sender_name, sender_role, text)
             VALUES (%s, %s, %s, %s, %s) RETURNING *""",
@@ -1601,3 +1625,50 @@ def handle_send_chat_message(body):
     conn.commit()
     conn.close()
     return ok(dict(row), 201)
+
+
+def handle_get_chat_unread_count(params):
+    """Считает непрочитанные сообщения чата класса для пользователя (кроме его собственных)."""
+    class_id = params.get("class_id")
+    user_id = params.get("user_id")
+    if not class_id or not user_id:
+        return err("class_id and user_id required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"SELECT last_read_message_id FROM {SCHEMA}.chat_reads WHERE user_id = %s AND class_id = %s",
+        (user_id, class_id)
+    )
+    read_row = cur.fetchone()
+    last_read = read_row["last_read_message_id"] if read_row else 0
+    cur.execute(
+        f"""SELECT COUNT(*) as cnt FROM {SCHEMA}.chat_messages
+            WHERE class_id = %s AND id > %s AND sender_id != %s""",
+        (class_id, last_read, user_id)
+    )
+    count = cur.fetchone()["cnt"]
+    conn.close()
+    return ok({"count": count})
+
+
+def handle_mark_chat_read(body):
+    """Отмечает чат класса прочитанным для пользователя (до последнего сообщения)."""
+    class_id = body.get("class_id")
+    user_id = body.get("user_id")
+    if not class_id or not user_id:
+        return err("class_id and user_id required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"SELECT MAX(id) as max_id FROM {SCHEMA}.chat_messages WHERE class_id = %s", (class_id,))
+    max_id = cur.fetchone()["max_id"] or 0
+    cur.execute(
+        f"""INSERT INTO {SCHEMA}.chat_reads (user_id, class_id, last_read_message_id, updated_at)
+            VALUES (%s, %s, %s, NOW())
+            ON CONFLICT (user_id, class_id) DO UPDATE
+            SET last_read_message_id = GREATEST({SCHEMA}.chat_reads.last_read_message_id, EXCLUDED.last_read_message_id),
+                updated_at = NOW()""",
+        (user_id, class_id, max_id)
+    )
+    conn.commit()
+    conn.close()
+    return ok({"ok": True})

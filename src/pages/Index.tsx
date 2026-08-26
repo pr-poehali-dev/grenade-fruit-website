@@ -364,6 +364,7 @@ export default function Index() {
   const [showNotifs, setShowNotifs] = useState(false);
   const [showClassPicker, setShowClassPicker] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
+  const [chatUnread, setChatUnread] = useState(0);
   const [fontScale, setFontScale] = useState<number>(() => {
     try { return Number(localStorage.getItem("font_scale") || "0"); } catch { return 0; }
   });
@@ -414,6 +415,20 @@ export default function Index() {
       if (cl) setSelectedClass(cl);
     }
   }, [user, classes]);
+
+  // Счётчик непрочитанных сообщений чата текущего класса — обновляется при смене класса/вкладки и раз в 5 секунд
+  useEffect(() => {
+    if (!user || !selectedClass) { setChatUnread(0); return; }
+    const loadUnread = () => {
+      if (tab === "chat") { setChatUnread(0); return; }
+      api(`get_chat_unread_count&class_id=${selectedClass.id}&user_id=${user.id}`).then(data => {
+        if (data && typeof data.count === "number") setChatUnread(data.count);
+      });
+    };
+    loadUnread();
+    const interval = setInterval(loadUnread, 5000);
+    return () => clearInterval(interval);
+  }, [user, selectedClass, tab]);
 
   const goTab = (t: Tab) => { setTab(t); setTabKey(k => k + 1); };
 
@@ -720,7 +735,7 @@ export default function Index() {
               <div className="hidden md:flex gap-1.5 mb-5 overflow-x-auto pb-1">
                 {NAV.map(n => (
                   <button key={n.id} onClick={() => goTab(n.id)}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all"
+                    className="relative flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all"
                     style={{
                       background: tab === n.id ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
                       color: tab === n.id ? "white" : "#3D1520",
@@ -728,6 +743,11 @@ export default function Index() {
                       boxShadow: tab === n.id ? "0 4px 12px rgba(139,26,47,0.2)" : "none",
                     }}>
                     <span>{n.emoji}</span> {n.label}
+                    {n.id === "chat" && chatUnread > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 min-w-[18px] h-[18px] px-1 rounded-full flex items-center justify-center text-white font-bold animate-notification-pop" style={{ background: "#8B1A2F", fontSize: 10 }}>
+                        {chatUnread > 99 ? "99+" : chatUnread}
+                      </span>
+                    )}
                   </button>
                 ))}
                 {/* Teacher-only tabs — на десктопе рядом с остальными, на мобильном доступны через пикер класса в шапке */}
@@ -779,9 +799,14 @@ export default function Index() {
         <div className="fixed bottom-4 left-4 right-4 z-50 md:hidden rounded-2xl border" style={{ background: "rgba(253,246,238,0.97)", backdropFilter: "blur(12px)", borderColor: "rgba(139,26,47,0.15)", boxShadow: "0 8px 32px rgba(139,26,47,0.15)" }}>
           <div className="flex justify-around py-2">
             {NAV.map(n => (
-              <button key={n.id} onClick={() => goTab(n.id)} className="flex flex-col items-center gap-0.5 px-1" style={{ color: tab === n.id ? "#8B1A2F" : "#9B6A7A" }}>
+              <button key={n.id} onClick={() => goTab(n.id)} className="relative flex flex-col items-center gap-0.5 px-1" style={{ color: tab === n.id ? "#8B1A2F" : "#9B6A7A" }}>
                 <span className="text-xl">{n.emoji}</span>
                 <span className="text-xs">{n.label}</span>
+                {n.id === "chat" && chatUnread > 0 && (
+                  <span className="absolute -top-0.5 right-0 min-w-[16px] h-[16px] px-1 rounded-full flex items-center justify-center text-white font-bold animate-notification-pop" style={{ background: "#8B1A2F", fontSize: 9 }}>
+                    {chatUnread > 99 ? "99+" : chatUnread}
+                  </span>
+                )}
               </button>
             ))}
           </div>
@@ -2874,30 +2899,32 @@ function ChatTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const data = await api(`get_chat_messages&class_id=${cls.id}`);
+    const data = await api(`get_chat_messages&class_id=${cls.id}&user_id=${user.id}&role=${user.role}`);
     if (Array.isArray(data)) {
       setMessages(data);
       if (data.length > 0) lastIdRef.current = data[data.length - 1].id;
     }
     setLoading(false);
-  }, [cls.id]);
+    api("mark_chat_read", "POST", { class_id: cls.id, user_id: user.id });
+  }, [cls.id, user.id, user.role]);
 
   useEffect(() => { load(); }, [load]);
 
   // Пуллинг новых сообщений раз в 4 секунды
   useEffect(() => {
     const interval = setInterval(async () => {
-      const data = await api(`get_chat_messages&class_id=${cls.id}`);
+      const data = await api(`get_chat_messages&class_id=${cls.id}&user_id=${user.id}&role=${user.role}`);
       if (Array.isArray(data) && data.length > 0) {
         const newestId = data[data.length - 1].id;
         if (newestId !== lastIdRef.current) {
           lastIdRef.current = newestId;
           setMessages(data);
+          api("mark_chat_read", "POST", { class_id: cls.id, user_id: user.id });
         }
       }
     }, 4000);
     return () => clearInterval(interval);
-  }, [cls.id]);
+  }, [cls.id, user.id, user.role]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -2916,13 +2943,14 @@ function ChatTab({ cls, user }: { cls: SchoolClass; user: User }) {
       setMessages(m => [...m, res]);
       lastIdRef.current = res.id;
       setText("");
+      api("mark_chat_read", "POST", { class_id: cls.id, user_id: user.id });
     }
     setSending(false);
   };
 
   return (
     <div>
-      <SectionTitle emoji="🗨️" title={`Чат класса · ${cls.display_name || cls.name}`} sub="Общий чат для родителей и учителя" />
+      <SectionTitle emoji="🗨️" title={`Чат класса · ${cls.display_name || cls.name}`} sub="Только родители этого класса и учителя" />
       <div className="rounded-2xl flex flex-col" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", height: "60vh", minHeight: 360 }}>
         <div ref={listRef} className="flex-1 overflow-y-auto p-4 space-y-3">
           {loading ? <Loader /> : messages.length === 0 ? (

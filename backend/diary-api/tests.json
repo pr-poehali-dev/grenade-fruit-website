@@ -134,9 +134,51 @@
       "name": "Send chat message success",
       "method": "POST",
       "path": "/?action=send_chat_message",
-      "body": {"class_id": 1, "sender_id": 4, "sender_name": "Родитель Петрова", "sender_role": "parent", "text": "Тестовое сообщение"},
+      "body": {"class_id": 14, "sender_id": 4, "sender_name": "Родитель Петрова", "sender_role": "parent", "text": "Тестовое сообщение"},
       "expectedStatus": 201,
       "expectedBody": {"text": "Тестовое сообщение"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Send chat message wrong class forbidden",
+      "method": "POST",
+      "path": "/?action=send_chat_message",
+      "body": {"class_id": 1, "sender_id": 4, "sender_name": "Родитель Петрова", "sender_role": "parent", "text": "Чужой класс"},
+      "expectedStatus": 403,
+      "expectedBody": {"error": "Нет доступа к чату этого класса"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get chat unread count missing fields",
+      "method": "GET",
+      "path": "/?action=get_chat_unread_count",
+      "expectedStatus": 400,
+      "expectedBody": {"error": "class_id and user_id required"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get chat unread count",
+      "method": "GET",
+      "path": "/?action=get_chat_unread_count&class_id=14&user_id=4",
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Mark chat read missing fields",
+      "method": "POST",
+      "path": "/?action=mark_chat_read",
+      "body": {},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "class_id and user_id required"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Mark chat read",
+      "method": "POST",
+      "path": "/?action=mark_chat_read",
+      "body": {"class_id": 14, "user_id": 4},
+      "expectedStatus": 200,
+      "expectedBody": {"ok": true},
       "bodyMatcher": "partial"
     }
   ]
