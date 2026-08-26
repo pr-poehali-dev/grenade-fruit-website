@@ -175,6 +175,8 @@ def handler(event: dict, context) -> dict:
         return handle_get_chat_messages(params)
     if action == "send_chat_message":
         return handle_send_chat_message(body)
+    if action == "delete_chat_message":
+        return handle_delete_chat_message(body)
     if action == "get_chat_unread_count":
         return handle_get_chat_unread_count(params)
     if action == "mark_chat_read":
@@ -1625,6 +1627,26 @@ def handle_send_chat_message(body):
     conn.commit()
     conn.close()
     return ok(dict(row), 201)
+
+
+def handle_delete_chat_message(body):
+    """Удаляет сообщение чата. Разрешено только учителю — свои и чужие сообщения."""
+    message_id = body.get("message_id")
+    user_id = body.get("user_id")
+    user_role = body.get("user_role")
+    if not message_id or not user_id or not user_role:
+        return err("message_id, user_id, user_role required")
+    if user_role != "teacher":
+        return err("Удалять сообщения может только учитель", 403)
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"DELETE FROM {SCHEMA}.chat_messages WHERE id = %s RETURNING id", (message_id,))
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return err("Сообщение не найдено", 404)
+    return ok({"ok": True})
 
 
 def handle_get_chat_unread_count(params):

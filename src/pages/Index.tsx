@@ -2948,6 +2948,14 @@ function ChatTab({ cls, user }: { cls: SchoolClass; user: User }) {
     setSending(false);
   };
 
+  const deleteMessage = async (messageId: number) => {
+    if (!confirm("Удалить это сообщение?")) return;
+    const res = await api("delete_chat_message", "POST", { message_id: messageId, user_id: user.id, user_role: user.role });
+    if (res && res.ok) {
+      setMessages(m => m.filter(msg => msg.id !== messageId));
+    }
+  };
+
   return (
     <div>
       <SectionTitle emoji="🗨️" title={`Чат класса · ${cls.display_name || cls.name}`} sub="Только родители этого класса и учителя" />
@@ -2960,7 +2968,13 @@ function ChatTab({ cls, user }: { cls: SchoolClass; user: User }) {
               const isMine = m.sender_id === user.id;
               const isTeacher = m.sender_role === "teacher";
               return (
-                <div key={m.id} className={`flex ${isMine ? "justify-end" : "justify-start"}`}>
+                <div key={m.id} className={`group flex items-start gap-1 ${isMine ? "justify-end" : "justify-start"}`}>
+                  {isMine && user.role === "teacher" && (
+                    <button onClick={() => deleteMessage(m.id)} title="Удалить сообщение"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity mt-6 shrink-0 w-6 h-6 rounded-full flex items-center justify-center hover:bg-red-50">
+                      <Icon name="Trash2" size={13} style={{ color: "#B71C1C" }} />
+                    </button>
+                  )}
                   <div className="max-w-[80%]">
                     {!isMine && (
                       <p className="text-xs font-semibold mb-0.5 px-1" style={{ color: isTeacher ? "#8B1A2F" : "#9B6A7A" }}>
@@ -2979,6 +2993,12 @@ function ChatTab({ cls, user }: { cls: SchoolClass; user: User }) {
                     </div>
                     <p className="text-[10px] mt-0.5 px-1" style={{ color: "#9B6A7A", textAlign: isMine ? "right" : "left" }}>{formatChatTime(m.created_at)}</p>
                   </div>
+                  {!isMine && user.role === "teacher" && (
+                    <button onClick={() => deleteMessage(m.id)} title="Удалить сообщение"
+                      className="opacity-0 group-hover:opacity-100 transition-opacity mt-6 shrink-0 w-6 h-6 rounded-full flex items-center justify-center hover:bg-red-50">
+                      <Icon name="Trash2" size={13} style={{ color: "#B71C1C" }} />
+                    </button>
+                  )}
                 </div>
               );
             })
