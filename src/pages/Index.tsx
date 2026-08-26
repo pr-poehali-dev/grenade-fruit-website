@@ -513,7 +513,29 @@ export default function Index() {
                 </button>
                 {showClassPicker && (
                   <div className="absolute right-0 top-10 rounded-2xl shadow-2xl z-50 animate-slide-up overflow-hidden"
-                    style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.12)", minWidth: 120 }}>
+                    style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.12)", minWidth: 160 }}>
+                    <button
+                      onClick={() => { setSelectedClass(null); goTab("my_schedule"); setShowClassPicker(false); }}
+                      className="w-full text-left px-4 py-2.5 text-sm font-medium hover:bg-pink-50 transition-colors flex items-center gap-1.5"
+                      style={{ color: tab === "my_schedule" ? "#8B1A2F" : "#3D1520", fontWeight: tab === "my_schedule" ? 700 : 500, borderBottom: "1px solid rgba(139,26,47,0.08)" }}>
+                      <Icon name="CalendarDays" size={13} /> Моё расписание
+                    </button>
+                    {selectedClass && (
+                      <>
+                        <button
+                          onClick={() => { goTab("classes"); setShowClassPicker(false); }}
+                          className="w-full text-left px-4 py-2.5 text-sm font-medium hover:bg-pink-50 transition-colors flex items-center gap-1.5"
+                          style={{ color: tab === "classes" ? "#8B1A2F" : "#3D1520", fontWeight: tab === "classes" ? 700 : 500 }}>
+                          <Icon name="Users" size={13} /> Ученики
+                        </button>
+                        <button
+                          onClick={() => { goTab("parents"); setShowClassPicker(false); }}
+                          className="w-full text-left px-4 py-2.5 text-sm font-medium hover:bg-pink-50 transition-colors flex items-center gap-1.5"
+                          style={{ color: tab === "parents" ? "#8B1A2F" : "#3D1520", fontWeight: tab === "parents" ? 700 : 500, borderBottom: "1px solid rgba(139,26,47,0.08)" }}>
+                          <Icon name="UsersRound" size={13} /> Родители
+                        </button>
+                      </>
+                    )}
                     {sortedClasses.map(cl => (
                       <button key={cl.id}
                         onClick={() => { setSelectedClass(cl); goTab("schedule"); setShowClassPicker(false); }}
@@ -692,8 +714,8 @@ export default function Index() {
             </div>
           ) : (
             <>
-              {/* Tab nav */}
-              <div className="flex gap-1.5 mb-5 overflow-x-auto pb-1">
+              {/* Tab nav — на мобильном дублируется нижней панелью, показываем только на десктопе */}
+              <div className="hidden md:flex gap-1.5 mb-5 overflow-x-auto pb-1">
                 {NAV.map(n => (
                   <button key={n.id} onClick={() => goTab(n.id)}
                     className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all"
@@ -706,9 +728,9 @@ export default function Index() {
                     <span>{n.emoji}</span> {n.label}
                   </button>
                 ))}
-                {/* Teacher-only tabs */}
+                {/* Teacher-only tabs — на десктопе рядом с остальными, на мобильном доступны через пикер класса в шапке */}
                 {user.role === "teacher" && (
-                  <>
+                  <div className="hidden md:contents">
                     <button onClick={() => goTab("classes")}
                       className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all"
                       style={{
@@ -729,7 +751,7 @@ export default function Index() {
                       }}>
                       <span>👨‍👩‍👧</span> Родители
                     </button>
-                  </>
+                  </div>
                 )}
               </div>
 
@@ -749,41 +771,19 @@ export default function Index() {
         </div>
       </div>
 
-      {/* Mobile bottom nav */}
-      <div className="fixed bottom-4 left-4 right-4 z-50 md:hidden rounded-2xl border" style={{ background: "rgba(253,246,238,0.97)", backdropFilter: "blur(12px)", borderColor: "rgba(139,26,47,0.15)", boxShadow: "0 8px 32px rgba(139,26,47,0.15)" }}>
-        <div className="flex justify-around py-2">
-          {NAV.map(n => (
-            <button key={n.id} onClick={() => goTab(n.id)} className="flex flex-col items-center gap-0.5 px-1" style={{ color: tab === n.id ? "#8B1A2F" : "#9B6A7A" }}>
-              <span className="text-xl">{n.emoji}</span>
-              <span className="text-xs">{n.label}</span>
-            </button>
-          ))}
-          {user.role === "teacher" && (
-            <>
-              <button onClick={() => { setSelectedClass(null); goTab("my_schedule"); }} className="flex flex-col items-center gap-0.5 px-1" style={{ color: tab === "my_schedule" ? "#8B1A2F" : "#9B6A7A" }}>
-                <span className="text-xl">🗓</span>
-                <span className="text-xs">Моё</span>
+      {/* Mobile bottom nav — только основные вкладки текущего класса, без дублей с верхней панелью */}
+      {selectedClass && (
+        <div className="fixed bottom-4 left-4 right-4 z-50 md:hidden rounded-2xl border" style={{ background: "rgba(253,246,238,0.97)", backdropFilter: "blur(12px)", borderColor: "rgba(139,26,47,0.15)", boxShadow: "0 8px 32px rgba(139,26,47,0.15)" }}>
+          <div className="flex justify-around py-2">
+            {NAV.map(n => (
+              <button key={n.id} onClick={() => goTab(n.id)} className="flex flex-col items-center gap-0.5 px-1" style={{ color: tab === n.id ? "#8B1A2F" : "#9B6A7A" }}>
+                <span className="text-xl">{n.emoji}</span>
+                <span className="text-xs">{n.label}</span>
               </button>
-              <button onClick={() => goTab("classes")} className="flex flex-col items-center gap-0.5 px-1" style={{ color: tab === "classes" ? "#8B1A2F" : "#9B6A7A" }}>
-                <span className="text-xl">👥</span>
-                <span className="text-xs">Ученики</span>
-              </button>
-              <button onClick={() => goTab("parents")} className="flex flex-col items-center gap-0.5 px-1" style={{ color: tab === "parents" ? "#8B1A2F" : "#9B6A7A" }}>
-                <span className="text-xl">👨‍👩‍👧</span>
-                <span className="text-xs">Родители</span>
-              </button>
-              <button onClick={() => { setSelectedClass(null); goTab("extended_day"); }} className="flex flex-col items-center gap-0.5 px-1" style={{ color: tab === "extended_day" ? "#8B1A2F" : "#9B6A7A" }}>
-                <span className="text-xl">☀️</span>
-                <span className="text-xs">Продлёнка</span>
-              </button>
-              <button onClick={() => { setSelectedClass(null); goTab("electives"); }} className="flex flex-col items-center gap-0.5 px-1" style={{ color: tab === "electives" ? "#8B1A2F" : "#9B6A7A" }}>
-                <span className="text-xl">🧩</span>
-                <span className="text-xs">Факультативы</span>
-              </button>
-            </>
-          )}
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
       {showNotifs && <div className="fixed inset-0 z-40" onClick={() => setShowNotifs(false)} />}
     </div>
