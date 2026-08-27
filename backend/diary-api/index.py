@@ -77,6 +77,14 @@ def handler(event: dict, context) -> dict:
         return handle_delete_parent(body)
     if action == "update_parent":
         return handle_update_parent(body)
+    if action == "get_student_logins":
+        return handle_get_student_logins(params)
+    if action == "add_student_login":
+        return handle_add_student_login(body)
+    if action == "delete_student_login":
+        return handle_delete_student_login(body)
+    if action == "update_student_login":
+        return handle_update_student_login(body)
     if action == "get_modules":
         return handle_get_modules()
     if action == "update_module":
@@ -226,15 +234,33 @@ def handle_login(body):
         (login, password)
     )
     user = cur.fetchone()
-    if not user:
+    if user:
+        cur.execute(f"UPDATE {SCHEMA}.users SET last_login_at = NOW() WHERE id = %s", (user["id"],))
+        conn.commit()
+        conn.close()
+        return ok({"id": user["id"], "login": user["login"], "role": user["role"],
+                   "display_name": user["display_name"], "child": user["child"],
+                   "child_id": user["child_id"], "class_id": user["class_id"], "email": user["email"]})
+
+    cur.execute(
+        f"""SELECT u.id, u.login, u.display_name, u.role, u.email,
+               s.full_name as student_name, s.id as student_id, s.class_id
+           FROM {SCHEMA}.users u
+           JOIN {SCHEMA}.student_users su ON su.user_id = u.id
+           JOIN {SCHEMA}.students s ON s.id = su.student_id
+           WHERE u.login = %s AND u.password_hash = %s AND u.role = 'student'""",
+        (login, password)
+    )
+    student_user = cur.fetchone()
+    if not student_user:
         conn.close()
         return err("Неверный логин или пароль", 401)
-    cur.execute(f"UPDATE {SCHEMA}.users SET last_login_at = NOW() WHERE id = %s", (user["id"],))
+    cur.execute(f"UPDATE {SCHEMA}.users SET last_login_at = NOW() WHERE id = %s", (student_user["id"],))
     conn.commit()
     conn.close()
-    return ok({"id": user["id"], "login": user["login"], "role": user["role"],
-               "display_name": user["display_name"], "child": user["child"],
-               "child_id": user["child_id"], "class_id": user["class_id"], "email": user["email"]})
+    return ok({"id": student_user["id"], "login": student_user["login"], "role": student_user["role"],
+               "display_name": student_user["display_name"], "student_name": student_user["student_name"],
+               "student_id": student_user["student_id"], "class_id": student_user["class_id"], "email": student_user["email"]})
 
 
 # ── Classes ───────────────────────────────────────────────
@@ -401,6 +427,110 @@ def handle_update_parent(body):
     conn.close()
     if not row:
         return err("Родитель не найден", 404)
+    return ok(dict(row))
+
+
+# ── Student logins (личный кабинет ученика) ─────────────────
+def handle_get_student_logins(params):
+    class_id = params.get("class_id")
+    conn = get_conn()
+    cur = conn.cursor()
+    if class_id:
+        cur.execute(
+            f"""SELECT u.id, u.login, u.display_name, u.last_login_at, s.full_name as student_name, s.id as student_id
+                FROM {SCHEMA}.users u
+                JOIN {SCHEMA}.student_users su ON su.user_id = u.id
+                JOIN {SCHEMA}.students s ON s.id = su.student_id
+                WHERE s.class_id = %s AND u.role = 'student' AND u.is_archived = false AND s.is_archived = false
+                ORDER BY s.full_name""",
+            (class_id,)
+        )
+    else:
+        cur.execute(
+            f"""SELECT u.id, u.login, u.display_name, u.last_login_at, s.full_name as student_name, s.id as student_id
+                FROM {SCHEMA}.users u
+                JOIN {SCHEMA}.student_users su ON su.user_id = u.id
+                JOIN {SCHEMA}.students s ON s.id = su.student_id
+                WHERE u.role = 'student' AND u.is_archived = false AND s.is_archived = false
+                ORDER BY s.full_name"""
+        )
+    rows = cur.fetchall()
+    conn.close()
+    return ok(list(rows))
+
+
+def handle_add_student_login(body):
+    login = (body.get("login") or "").strip()
+    password = (body.get("password") or "").strip()
+    display_name = (body.get("display_name") or "").strip()
+    student_id = body.get("student_id")
+    if not login or not password or not student_id:
+        return err("Укажите логин, пароль и ученика")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"SELECT id FROM {SCHEMA}.users WHERE login = %s", (login,))
+    if cur.fetchone():
+        conn.close()
+        return err("Логин уже занят")
+    cur.execute(f"SELECT user_id FROM {SCHEMA}.student_users WHERE student_id = %s", (student_id,))
+    if cur.fetchone():
+        conn.close()
+        return err("У этого ученика уже есть логин")
+    cur.execute(
+        f"INSERT INTO {SCHEMA}.users (login, password_hash, role, display_name) VALUES (%s, %s, 'student', %s) RETURNING id, login, display_name, role",
+        (login, password, display_name or login)
+    )
+    user = cur.fetchone()
+    cur.execute(
+        f"INSERT INTO {SCHEMA}.student_users (user_id, student_id) VALUES (%s, %s)",
+        (user["id"], student_id)
+    )
+    conn.commit()
+    conn.close()
+    return ok(dict(user), 201)
+
+
+def handle_delete_student_login(body):
+    user_id = body.get("user_id")
+    if not user_id:
+        return err("user_id required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"UPDATE {SCHEMA}.users SET is_archived = true WHERE id = %s AND role = 'student'", (user_id,))
+    conn.commit()
+    conn.close()
+    return ok({"ok": True})
+
+
+def handle_update_student_login(body):
+    """Изменяет отображаемое имя или пароль ученика."""
+    user_id = body.get("user_id")
+    display_name = (body.get("display_name") or "").strip()
+    password = (body.get("password") or "").strip()
+    if not user_id or (not display_name and not password):
+        return err("Укажите пользователя и что менять")
+    conn = get_conn()
+    cur = conn.cursor()
+    if display_name and password:
+        cur.execute(
+            f"UPDATE {SCHEMA}.users SET display_name = %s, password_hash = %s WHERE id = %s AND role = 'student' RETURNING id, login, display_name, role",
+            (display_name, password, user_id)
+        )
+    elif display_name:
+        cur.execute(
+            f"UPDATE {SCHEMA}.users SET display_name = %s WHERE id = %s AND role = 'student' RETURNING id, login, display_name, role",
+            (display_name, user_id)
+        )
+    else:
+        cur.execute(
+            f"UPDATE {SCHEMA}.users SET password_hash = %s WHERE id = %s AND role = 'student' RETURNING id, login, display_name, role",
+            (password, user_id)
+        )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return err("Ученик не найден", 404)
     return ok(dict(row))
 
 
@@ -1577,6 +1707,9 @@ def handle_get_chat_messages(params):
     limit = 50
     conn = get_conn()
     cur = conn.cursor()
+    if role == "student":
+        conn.close()
+        return err("Чат недоступен для учеников", 403)
     if role == "parent" and user_id and not _parent_belongs_to_class(cur, user_id, class_id):
         conn.close()
         return err("Нет доступа к чату этого класса", 403)
@@ -1615,6 +1748,9 @@ def handle_send_chat_message(body):
         return err("text too long")
     conn = get_conn()
     cur = conn.cursor()
+    if sender_role == "student":
+        conn.close()
+        return err("Чат недоступен для учеников", 403)
     if sender_role == "parent" and not _parent_belongs_to_class(cur, sender_id, class_id):
         conn.close()
         return err("Нет доступа к чату этого класса", 403)

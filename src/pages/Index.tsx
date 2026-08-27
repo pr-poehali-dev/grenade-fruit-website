@@ -17,10 +17,10 @@ async function api(action: string, method = "GET", body?: object) {
 }
 
 // ─── Types ────────────────────────────────────────────────
-type Role = "teacher" | "parent";
-type Tab = "classes" | "parents" | "schedule" | "homework" | "grades" | "attendance" | "recommendations" | "my_schedule" | "extended_day" | "electives" | "archive" | "chat";
+type Role = "teacher" | "parent" | "student";
+type Tab = "classes" | "parents" | "students_login" | "schedule" | "homework" | "grades" | "attendance" | "recommendations" | "my_schedule" | "extended_day" | "electives" | "archive" | "chat";
 
-interface User { id: number; login: string; role: Role; display_name: string; child?: string; child_id?: number; class_id?: number; email?: string; }
+interface User { id: number; login: string; role: Role; display_name: string; child?: string; child_id?: number; student_name?: string; student_id?: number; class_id?: number; email?: string; }
 interface SchoolClass { id: number; name: string; grade: number; letter: string; display_name?: string; }
 interface Student { id: number; full_name: string; class_id: number; class_name?: string; }
 interface ScheduleItem { id: number; day_of_week: string; time_slot: string; subject: string; teacher_name: string; room: string; class_id: number; sort_order: number; }
@@ -139,7 +139,7 @@ function AddBtn({ label, onClick }: { label: string; onClick?: () => void }) {
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.4)" }} onClick={onClose}>
-      <div className="w-full max-w-md rounded-3xl p-6 shadow-2xl animate-bounce-in max-h-[90vh] overflow-y-auto" style={{ background: "white" }} onClick={e => e.stopPropagation()}>
+      <div className="w-full max-w-md rounded-3xl p-6 shadow-2xl animate-bounce-in max-h-[90dvh] overflow-y-auto" style={{ background: "white" }} onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5 sticky top-0 -mt-6 -mx-6 px-6 pt-6 pb-3" style={{ background: "white" }}>
           <h3 className="text-2xl font-bold" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif" }}>{title}</h3>
           <button onClick={onClose} className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-100 shrink-0">
@@ -211,6 +211,20 @@ function filterVisibleLessons<T extends { subject: string }>(lessons: T[], allow
   return lessons.filter(l => !isElectiveSubject(l.subject) || allowedElectives.has(l.subject));
 }
 
+// ID ученика, за которого "смотрит" текущий пользователь: у родителя — его ребёнок, у ученика — он сам
+function ownStudentId(user: User): number | undefined {
+  if (user.role === "parent") return user.child_id;
+  if (user.role === "student") return user.student_id;
+  return undefined;
+}
+
+// Имя ученика, за которого "смотрит" текущий пользователь — для подзаголовков вкладок
+function ownStudentName(user: User): string | undefined {
+  if (user.role === "parent") return user.child;
+  if (user.role === "student") return user.student_name;
+  return undefined;
+}
+
 // ─── Login ────────────────────────────────────────────────
 function LoginScreen({ onLogin }: { onLogin: (u: User) => void }) {
   const [tab, setTab] = useState<Role>("parent");
@@ -274,17 +288,17 @@ function LoginScreen({ onLogin }: { onLogin: (u: User) => void }) {
 
         <div className="rounded-3xl p-7 shadow-2xl" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.1)" }}>
           <div className="flex rounded-2xl p-1 mb-5" style={{ background: "#F5E0E5" }}>
-            {(["parent", "teacher"] as Role[]).map(r => (
+            {(["parent", "student", "teacher"] as Role[]).map(r => (
               <button key={r} onClick={() => { setTab(r); setError(""); }}
-                className="flex-1 py-2.5 rounded-xl text-sm font-medium transition-all duration-200"
+                className="flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-medium transition-all duration-200"
                 style={{ background: tab === r ? "#8B1A2F" : "transparent", color: tab === r ? "white" : "#8B1A2F" }}>
-                {r === "teacher" ? "👩‍🏫 Учитель" : "👨‍👩‍👧 Родитель"}
+                {r === "teacher" ? "👩‍🏫 Учитель" : r === "student" ? "🎒 Ученик" : "👨‍👩‍👧 Родитель"}
               </button>
             ))}
           </div>
           <form onSubmit={submit} className="space-y-3">
-            <Field label={tab === "parent" ? "Логин" : "Ваше имя"}>
-              <Input value={login} onChange={e => setLogin(e.target.value)} placeholder={tab === "parent" ? "parent1" : "Анна Сергеевна"} />
+            <Field label={tab === "teacher" ? "Ваше имя" : "Логин"}>
+              <Input value={login} onChange={e => setLogin(e.target.value)} placeholder={tab === "teacher" ? "Анна Сергеевна" : tab === "student" ? "student1" : "parent1"} />
             </Field>
             <Field label="Пароль">
               <Input type="password" value={pass} onChange={e => setPass(e.target.value)} placeholder="••••••••" />
@@ -408,9 +422,9 @@ export default function Index() {
     }
   }, [user]);
 
-  // Для родителя — автовыбор класса ребёнка
+  // Для родителя/ученика — автовыбор своего класса
   useEffect(() => {
-    if (user?.role === "parent" && user.class_id && classes.length > 0) {
+    if ((user?.role === "parent" || user?.role === "student") && user.class_id && classes.length > 0) {
       const cl = classes.find(c => c.id === user.class_id);
       if (cl) setSelectedClass(cl);
     }
@@ -418,7 +432,7 @@ export default function Index() {
 
   // Счётчик непрочитанных сообщений чата текущего класса — обновляется при смене класса/вкладки и раз в 5 секунд
   useEffect(() => {
-    if (!user || !selectedClass) { setChatUnread(0); return; }
+    if (!user || !selectedClass || user.role === "student") { setChatUnread(0); return; }
     const loadUnread = () => {
       if (tab === "chat") { setChatUnread(0); return; }
       api(`get_chat_unread_count&class_id=${selectedClass.id}&user_id=${user.id}`).then(data => {
@@ -487,7 +501,7 @@ export default function Index() {
     { id: "grades" as Tab, label: "Отметки", emoji: "⭐" },
     { id: "attendance" as Tab, label: "Явка", emoji: "🚸" },
     { id: "recommendations" as Tab, label: "Советы", emoji: "💬" },
-    { id: "chat" as Tab, label: "Чат", emoji: "🗨️" },
+    ...(user.role !== "student" ? [{ id: "chat" as Tab, label: "Чат", emoji: "🗨️" }] : []),
     { id: "archive" as Tab, label: "Архив", emoji: "🗄️" },
   ];
 
@@ -505,7 +519,7 @@ export default function Index() {
             <div>
               <p className="font-bold leading-tight" style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif", fontSize: 18 }}>Гранатовый Дневник</p>
               <p className="text-xs" style={{ color: "#9B6A7A" }}>
-                {user.role === "teacher" ? `👩‍🏫 ${user.display_name || user.login}` : `👨‍👩‍👧 ${user.child}`}
+                {user.role === "teacher" ? `👩‍🏫 ${user.display_name || user.login}` : user.role === "student" ? `🎒 ${user.student_name}` : `👨‍👩‍👧 ${user.child}`}
                 {selectedClass && <span className="ml-1.5 px-1.5 py-0.5 rounded-md text-xs font-semibold" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{selectedClass.display_name || selectedClass.name}</span>}
               </p>
             </div>
@@ -548,8 +562,14 @@ export default function Index() {
                         <button
                           onClick={() => { goTab("parents"); setShowClassPicker(false); }}
                           className="w-full text-left px-4 py-2.5 text-sm font-medium hover:bg-pink-50 transition-colors flex items-center gap-1.5"
-                          style={{ color: tab === "parents" ? "#8B1A2F" : "#3D1520", fontWeight: tab === "parents" ? 700 : 500, borderBottom: "1px solid rgba(139,26,47,0.08)" }}>
+                          style={{ color: tab === "parents" ? "#8B1A2F" : "#3D1520", fontWeight: tab === "parents" ? 700 : 500 }}>
                           <Icon name="UsersRound" size={13} /> Родители
+                        </button>
+                        <button
+                          onClick={() => { goTab("students_login"); setShowClassPicker(false); }}
+                          className="w-full text-left px-4 py-2.5 text-sm font-medium hover:bg-pink-50 transition-colors flex items-center gap-1.5"
+                          style={{ color: tab === "students_login" ? "#8B1A2F" : "#3D1520", fontWeight: tab === "students_login" ? 700 : 500, borderBottom: "1px solid rgba(139,26,47,0.08)" }}>
+                          <Icon name="KeyRound" size={13} /> Логины учеников
                         </button>
                       </>
                     )}
@@ -620,8 +640,8 @@ export default function Index() {
         </div>
       </header>
 
-      <div className={`max-w-6xl mx-auto px-4 py-5 flex gap-5 ${user.role === "parent" ? "justify-center" : ""}`}>
-        {/* Left sidebar: class picker (teachers only — parents have a single class) */}
+      <div className={`max-w-6xl mx-auto px-4 py-5 flex gap-5 ${user.role !== "teacher" ? "justify-center" : ""}`}>
+        {/* Left sidebar: class picker (teachers only — parents/students have a single class) */}
         {user.role === "teacher" && (
         <aside className="w-44 shrink-0 hidden md:block">
           <div className="sticky top-20 space-y-4">
@@ -684,7 +704,7 @@ export default function Index() {
         )}
 
         {/* Main area */}
-        <div className={`flex-1 min-w-0 pb-24 md:pb-0 ${user.role === "parent" ? "max-w-2xl mx-auto" : ""}`}>
+        <div className={`flex-1 min-w-0 pb-24 md:pb-0 ${user.role !== "teacher" ? "max-w-2xl mx-auto" : ""}`}>
           {tab === "my_schedule" && user.role === "teacher" ? (
             <MyScheduleTab user={user} classes={classes} />
           ) : tab === "extended_day" && user.role === "teacher" ? (
@@ -773,6 +793,16 @@ export default function Index() {
                       }}>
                       <span>👨‍👩‍👧</span> Родители
                     </button>
+                    <button onClick={() => goTab("students_login")}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-sm font-medium whitespace-nowrap transition-all"
+                      style={{
+                        background: tab === "students_login" ? "linear-gradient(135deg, #5C0F1E, #8B1A2F)" : "white",
+                        color: tab === "students_login" ? "white" : "#3D1520",
+                        border: "1.5px solid rgba(139,26,47,0.1)",
+                        boxShadow: tab === "students_login" ? "0 4px 12px rgba(139,26,47,0.2)" : "none",
+                      }}>
+                      <span>🔑</span> Логины учеников
+                    </button>
                   </div>
                 )}
               </div>
@@ -784,10 +814,11 @@ export default function Index() {
                 {tab === "grades" && <GradesTab cls={selectedClass} user={user} />}
                 {tab === "attendance" && <AttendanceTab cls={selectedClass} user={user} />}
                 {tab === "recommendations" && <RecsTab cls={selectedClass} user={user} />}
-                {tab === "chat" && <ChatTab cls={selectedClass} user={user} />}
+                {tab === "chat" && user.role !== "student" && <ChatTab cls={selectedClass} user={user} />}
                 {tab === "archive" && <ArchiveTab cls={selectedClass} />}
                 {tab === "classes" && user.role === "teacher" && <StudentsTab cls={selectedClass} />}
                 {tab === "parents" && user.role === "teacher" && <ParentsTab cls={selectedClass} />}
+                {tab === "students_login" && user.role === "teacher" && <StudentLoginsTab cls={selectedClass} />}
               </div>
             </>
           )}
@@ -871,18 +902,19 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
     Object.fromEntries(DAYS.map(d => [d, [emptySlot()]]))
   );
 
-  // Факультативы, на которые ученик записан вручную учителем — для родителя
+  // Факультативы, на которые ученик записан вручную учителем — для родителя/ученика
   // ограничивают видимость расписания, для учителя ограничений нет (видит всё)
   const [allowedElectives, setAllowedElectives] = useState<Set<string> | null>(null);
+  const scheduleStudentId = ownStudentId(user);
   useEffect(() => {
-    if (user.role === "parent" && user.child_id) {
-      api(`get_elective_subjects_for_student&student_id=${user.child_id}`).then(data => {
+    if ((user.role === "parent" || user.role === "student") && scheduleStudentId) {
+      api(`get_elective_subjects_for_student&student_id=${scheduleStudentId}`).then(data => {
         setAllowedElectives(Array.isArray(data) ? new Set(data) : new Set());
       });
     } else {
       setAllowedElectives(null);
     }
-  }, [user.role, user.child_id]);
+  }, [user.role, scheduleStudentId]);
 
   // Load base week schedule
   const loadWeek = useCallback(async () => {
@@ -3057,7 +3089,8 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const query = user.role === "parent" && user.child_id ? `student_id=${user.child_id}` : `class_id=${cls.id}`;
+    const ownId = ownStudentId(user);
+    const query = ownId ? `student_id=${ownId}` : `class_id=${cls.id}`;
     const [g, s] = await Promise.all([
       api(`get_grades&${query}`),
       user.role === "teacher" ? api(`get_students&class_id=${cls.id}`) : Promise.resolve([]),
@@ -3119,9 +3152,9 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
     return [...map.values()].sort((a, b) => a.iso.localeCompare(b.iso)).map(e => ({ date: e.label, percent: Math.round(e.total / e.count) }));
   }, [selectedModule]);
 
-  // Средний % ребёнка за модуль в разбивке по предметам, с графиком динамики по каждому предмету — для родителя
+  // Средний % ребёнка за модуль в разбивке по предметам, с графиком динамики по каждому предмету — для родителя/ученика
   const childSubjectStats = useMemo(() => {
-    if (user.role !== "parent") return [];
+    if (user.role === "teacher") return [];
     const map = new Map<string, Grade[]>();
     moduleGrades.forEach(g => {
       if (!map.has(g.subject)) map.set(g.subject, []);
@@ -3216,7 +3249,7 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   return (
     <div>
-      <SectionTitle emoji="⭐" title={`Отметки · ${cls.display_name || cls.name}`} sub={user.role === "parent" ? user.child : undefined} />
+      <SectionTitle emoji="⭐" title={`Отметки · ${cls.display_name || cls.name}`} sub={ownStudentName(user)} />
       {modules.length > 0 && (
         <button onClick={() => setShowSummary(true)}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium mb-4 transition-all hover:opacity-80"
@@ -3312,9 +3345,9 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
                 {new Date(selectedModule.date_start).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })} — {new Date(selectedModule.date_end).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
               </p>
             )}
-            {user.role === "parent" && (
-              <button onClick={() => user.child_id && exportSummaryPdf(user.child_id, user.child || "Ученик")}
-                disabled={!user.child_id || childSubjectStats.length === 0}
+            {user.role !== "teacher" && (
+              <button onClick={() => ownStudentId(user) && exportSummaryPdf(ownStudentId(user)!, ownStudentName(user) || "Ученик")}
+                disabled={!ownStudentId(user) || childSubjectStats.length === 0}
                 className="flex items-center justify-center gap-1.5 w-full px-3 py-2 rounded-xl text-xs font-medium transition-all hover:opacity-80 disabled:opacity-40"
                 style={{ background: "#8B1A2F", color: "white" }}>
                 <Icon name="FileDown" size={13} /> Скачать сводку в PDF
@@ -3337,7 +3370,7 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
                 </button>
               </div>
             )}
-            {user.role === "parent" && childSubjectStats.length > 0 ? (
+            {user.role !== "teacher" && childSubjectStats.length > 0 ? (
               <div className="space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#9B6A7A" }}>Результаты по предметам</p>
                 {childSubjectStats.map(({ subject, count, avgPct, chart }) => {
@@ -3369,7 +3402,7 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
                   );
                 })}
               </div>
-            ) : user.role === "parent" ? (
+            ) : user.role !== "teacher" ? (
               <Empty text="За этот модуль отметок нет" />
             ) : null}
             {user.role === "teacher" && teacherSubjectStats.length > 0 ? (
@@ -3416,7 +3449,7 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
               <div className="space-y-3">
                 <p className="text-xs font-semibold uppercase tracking-wider" style={{ color: "#9B6A7A" }}>Итоговые отметки по предметам</p>
                 {[...finalByStudent.entries()].map(([studentId, recs]) => {
-                  const studentName = user.role === "parent" ? user.child : (students.find(s => s.id === studentId)?.full_name || recs[0]?.student_name);
+                  const studentName = user.role !== "teacher" ? ownStudentName(user) : (students.find(s => s.id === studentId)?.full_name || recs[0]?.student_name);
                   return (
                     <div key={studentId} className="p-3 rounded-2xl" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)" }}>
                       {user.role === "teacher" && <p className="font-medium text-sm mb-2" style={{ color: "#3D1520" }}>{studentName}</p>}
@@ -3462,7 +3495,8 @@ function AttendanceTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const query = user.role === "parent" && user.child_id ? `student_id=${user.child_id}` : `class_id=${cls.id}`;
+    const ownId = ownStudentId(user);
+    const query = ownId ? `student_id=${ownId}` : `class_id=${cls.id}`;
     const [a, s] = await Promise.all([
       api(`get_attendance&${query}`),
       user.role === "teacher" ? api(`get_students&class_id=${cls.id}`) : Promise.resolve([]),
@@ -3531,7 +3565,7 @@ function AttendanceTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   return (
     <div>
-      <SectionTitle emoji="🚸" title={`Явка · ${cls.display_name || cls.name}`} sub={user.role === "parent" ? user.child : undefined} />
+      <SectionTitle emoji="🚸" title={`Явка · ${cls.display_name || cls.name}`} sub={ownStudentName(user)} />
       {!loading && (lateCount > 0 || absentCount > 0) && (
         <div className="flex gap-2 mb-4 flex-wrap">
           {absentCount > 0 && (
@@ -3664,7 +3698,8 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const query = user.role === "parent" && user.child_id ? `student_id=${user.child_id}` : `class_id=${cls.id}`;
+    const ownId = ownStudentId(user);
+    const query = ownId ? `student_id=${ownId}` : `class_id=${cls.id}`;
     const [r, s] = await Promise.all([
       api(`get_recommendations&${query}`),
       user.role === "teacher" ? api(`get_students&class_id=${cls.id}`) : Promise.resolve([]),
@@ -3685,7 +3720,7 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   return (
     <div>
-      <SectionTitle emoji="💬" title={`Рекомендации · ${cls.display_name || cls.name}`} sub={user.role === "parent" ? user.child : undefined} />
+      <SectionTitle emoji="💬" title={`Рекомендации · ${cls.display_name || cls.name}`} sub={ownStudentName(user)} />
       {loading ? <Loader /> : (
         <div className="space-y-4">
           {recs.length === 0 && <Empty text="Рекомендаций нет" />}
@@ -3872,6 +3907,140 @@ function ParentsTab({ cls }: { cls: SchoolClass }) {
         <Modal title="Изменить имя родителя" onClose={() => setEditing(null)}>
           <form onSubmit={saveEdit} className="space-y-3">
             <Field label="Имя родителя"><Input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Мария Петрова" required /></Field>
+            <SaveBtn loading={savingEdit} />
+          </form>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── Student Logins Tab (учителя выдают ученикам доступ) ────
+interface StudentLogin { id: number; login: string; display_name: string; student_name: string; student_id: number; last_login_at: string | null; }
+
+function StudentLoginsTab({ cls }: { cls: SchoolClass }) {
+  const [logins, setLogins] = useState<StudentLogin[]>([]);
+  const [students, setStudents] = useState<Student[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ login: "", password: "", display_name: "", student_id: "" });
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [editing, setEditing] = useState<StudentLogin | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editPassword, setEditPassword] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    const [l, s] = await Promise.all([
+      api(`get_student_logins&class_id=${cls.id}`),
+      api(`get_students&class_id=${cls.id}`),
+    ]);
+    if (Array.isArray(l)) setLogins(l);
+    if (Array.isArray(s)) setStudents(s);
+    setLoading(false);
+  }, [cls.id]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const studentsWithoutLogin = students.filter(s => !logins.some(l => l.student_id === s.id));
+
+  const removeLogin = async (id: number) => {
+    if (!confirm("Удалить доступ ученика? Он потеряет возможность входа в дневник.")) return;
+    await api("delete_student_login", "POST", { user_id: id });
+    load();
+  };
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaveError(""); setSaving(true);
+    const res = await api("add_student_login", "POST", { ...form, student_id: Number(form.student_id) });
+    setSaving(false);
+    if (res.error) { setSaveError(res.error); return; }
+    setShowAdd(false);
+    setForm({ login: "", password: "", display_name: "", student_id: "" });
+    load();
+  };
+
+  const openEdit = (l: StudentLogin) => { setEditing(l); setEditName(l.display_name || l.login); setEditPassword(""); };
+
+  const saveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editing) return;
+    setSavingEdit(true);
+    await api("update_student_login", "POST", { user_id: editing.id, display_name: editName, password: editPassword });
+    setSavingEdit(false);
+    setEditing(null);
+    load();
+  };
+
+  return (
+    <div>
+      <SectionTitle emoji="🔑" title={`Логины учеников · ${cls.display_name || cls.name}`} sub={`${logins.length} профилей`} />
+      {loading ? <Loader /> : (
+        <div className="space-y-2">
+          {logins.length === 0 && <Empty text="Ученикам ещё не выданы логины" />}
+          {logins.map((l, i) => (
+            <div key={l.id} className="flex items-center gap-3 px-4 py-3 rounded-2xl animate-slide-up card-hover"
+              style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.05}s`, opacity: 0 }}>
+              <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm shrink-0 text-lg" style={{ background: "#F5E0E5" }}>🎒</div>
+              <div className="flex-1 min-w-0">
+                <p className="font-medium text-sm" style={{ color: "#3D1520" }}>{l.student_name}</p>
+                <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>
+                  Логин: <b style={{ color: "#8B1A2F" }}>{l.login}</b>
+                </p>
+                <p className="text-xs mt-1 flex items-center gap-1" style={{ color: l.last_login_at ? "#4A8B5C" : "#B08A94" }}>
+                  <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: l.last_login_at ? "#4A8B5C" : "#D9C3C9" }} />
+                  {formatLastLogin(l.last_login_at)}
+                </p>
+              </div>
+              <button onClick={() => openEdit(l)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 shrink-0">
+                <Icon name="Pencil" size={13} style={{ color: "#8B1A2F" }} />
+              </button>
+              <button onClick={() => removeLogin(l.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
+                <Icon name="Trash2" size={13} className="text-red-400" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <AddBtn label="Выдать логин ученику" onClick={() => { setShowAdd(true); setSaveError(""); }} />
+
+      {showAdd && (
+        <Modal title="Новый доступ ученика" onClose={() => setShowAdd(false)}>
+          <form onSubmit={save} className="space-y-3">
+            <Field label="Ученик">
+              <Select value={form.student_id} onChange={e => setForm(f => ({ ...f, student_id: e.target.value }))} required>
+                <option value="">Выберите ученика</option>
+                {studentsWithoutLogin.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+              </Select>
+            </Field>
+            <Field label="Отображаемое имя (необязательно)">
+              <Input value={form.display_name} onChange={e => setForm(f => ({ ...f, display_name: e.target.value }))} placeholder="Иван Петров" />
+            </Field>
+            <Field label="Логин (для входа)">
+              <Input value={form.login} onChange={e => setForm(f => ({ ...f, login: e.target.value }))} placeholder="petrov_ivan" required />
+            </Field>
+            <Field label="Пароль">
+              <Input type="password" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="Минимум 6 символов" required />
+            </Field>
+            {saveError && (
+              <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: "rgba(244,67,54,0.06)", border: "1px solid rgba(244,67,54,0.2)" }}>
+                <Icon name="AlertCircle" size={14} className="text-red-500 shrink-0" />
+                <span className="text-xs text-red-600">{saveError}</span>
+              </div>
+            )}
+            <SaveBtn loading={saving} />
+          </form>
+        </Modal>
+      )}
+
+      {editing && (
+        <Modal title="Изменить доступ ученика" onClose={() => setEditing(null)}>
+          <form onSubmit={saveEdit} className="space-y-3">
+            <Field label="Отображаемое имя"><Input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Иван Петров" required /></Field>
+            <Field label="Новый пароль (необязательно)"><Input type="password" value={editPassword} onChange={e => setEditPassword(e.target.value)} placeholder="Оставьте пустым, чтобы не менять" /></Field>
             <SaveBtn loading={savingEdit} />
           </form>
         </Modal>

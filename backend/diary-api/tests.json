@@ -207,6 +207,48 @@
       "expectedStatus": 404,
       "expectedBody": {"error": "Сообщение не найдено"},
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get student logins for class",
+      "method": "GET",
+      "path": "/?action=get_student_logins&class_id=1",
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Add student login missing fields",
+      "method": "POST",
+      "path": "/?action=add_student_login",
+      "body": {},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "Укажите логин, пароль и ученика"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Chat forbidden for student role",
+      "method": "GET",
+      "path": "/?action=get_chat_messages&class_id=1&role=student&user_id=1",
+      "expectedStatus": 403,
+      "expectedBody": {"error": "Чат недоступен для учеников"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Send chat message forbidden for student role",
+      "method": "POST",
+      "path": "/?action=send_chat_message",
+      "body": {"class_id": 1, "sender_id": 1, "sender_name": "Ученик", "sender_role": "student", "text": "тест"},
+      "expectedStatus": 403,
+      "expectedBody": {"error": "Чат недоступен для учеников"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Login invalid credentials",
+      "method": "POST",
+      "path": "/?action=login",
+      "body": {"login": "no_such_user", "password": "wrong"},
+      "expectedStatus": 401,
+      "expectedBody": {"error": "Неверный логин или пароль"},
+      "bodyMatcher": "partial"
     }
   ]
 }
