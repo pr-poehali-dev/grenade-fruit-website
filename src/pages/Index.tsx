@@ -129,7 +129,7 @@ function SectionTitle({ emoji, title, sub }: { emoji: string; title: string; sub
 
 function AddBtn({ label, onClick }: { label: string; onClick?: () => void }) {
   return (
-    <button onClick={onClick} className="mt-3 w-full py-3 rounded-2xl text-sm font-medium border-2 border-dashed transition-all hover:opacity-70"
+    <button onClick={onClick} className="mb-4 w-full py-3 rounded-2xl text-sm font-medium border-2 border-dashed transition-all hover:opacity-70"
       style={{ borderColor: "rgba(139,26,47,0.25)", color: "#8B1A2F" }}>
       + {label}
     </button>
@@ -2848,6 +2848,7 @@ function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
   return (
     <div>
       <SectionTitle emoji="📚" title={`Домашние задания · ${cls.display_name || cls.name}`} sub={`${items.length} заданий · для всего класса`} />
+      {user.role === "teacher" && <AddBtn label="Добавить задание" onClick={openAdd} />}
       {loading ? <Loader /> : (
         <div className="space-y-3">
           {items.length === 0 && <Empty text="Заданий нет" />}
@@ -2884,7 +2885,6 @@ function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
           ))}
         </div>
       )}
-      {user.role === "teacher" && <AddBtn label="Добавить задание" onClick={openAdd} />}
 
       {showAdd && (
         <Modal title={editing ? "Редактировать ДЗ" : "Новое задание · весь класс"} onClose={() => setShowAdd(false)}>
@@ -3320,6 +3320,7 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
           <Icon name="BarChart3" size={13} /> Сводка за модуль
         </button>
       )}
+      {user.role === "teacher" && <AddBtn label="Поставить отметку" onClick={() => setShowAdd(true)} />}
       {loading ? <Loader /> : (
         <div className="space-y-3">
           {grades.length === 0 && <Empty text="Отметок нет" />}
@@ -3345,7 +3346,6 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
       )}
       {user.role === "teacher" && (
         <>
-          <AddBtn label="Поставить отметку" onClick={() => setShowAdd(true)} />
           {showAdd && (
             <Modal title="Новая отметка" onClose={() => setShowAdd(false)}>
               <form onSubmit={save} className="space-y-3">
@@ -3650,6 +3650,7 @@ function AttendanceTab({ cls, user }: { cls: SchoolClass; user: User }) {
           <Icon name="BarChart3" size={13} /> Сводка за модуль
         </button>
       )}
+      {user.role === "teacher" && <AddBtn label="Отметить опоздание/отсутствие" onClick={openAdd} />}
       {loading ? <Loader /> : (
         <div className="space-y-3">
           {records.length === 0 && <Empty text="Записей нет" />}
@@ -3685,7 +3686,6 @@ function AttendanceTab({ cls, user }: { cls: SchoolClass; user: User }) {
       )}
       {user.role === "teacher" && (
         <>
-          <AddBtn label="Отметить опоздание/отсутствие" onClick={openAdd} />
           {showAdd && (
             <Modal title={editing ? "Изменить запись" : "Новая запись"} onClose={() => { setShowAdd(false); setEditing(null); }}>
               <form onSubmit={save} className="space-y-3">
@@ -3784,6 +3784,7 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
   return (
     <div>
       <SectionTitle emoji="💬" title={`Рекомендации · ${cls.display_name || cls.name}`} sub={ownStudentName(user)} />
+      {user.role === "teacher" && <AddBtn label="Написать рекомендацию" onClick={() => setShowAdd(true)} />}
       {loading ? <Loader /> : (
         <div className="space-y-4">
           {recs.length === 0 && <Empty text="Рекомендаций нет" />}
@@ -3808,7 +3809,6 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
       )}
       {user.role === "teacher" && (
         <>
-          <AddBtn label="Написать рекомендацию" onClick={() => setShowAdd(true)} />
           {showAdd && (
             <Modal title="Новая рекомендация" onClose={() => setShowAdd(false)}>
               <form onSubmit={save} className="space-y-3">
