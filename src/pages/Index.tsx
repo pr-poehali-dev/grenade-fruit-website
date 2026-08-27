@@ -95,10 +95,24 @@ function parseRuDateGuessYear(dateStr: string, refDate: Date = new Date()): stri
   }
   return best ? best.iso : null;
 }
-function isHomeworkOverdue(dueDate: string): boolean {
-  const iso = parseRuDateGuessYear(dueDate);
+function localIsoDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+// ДЗ считается просроченным (уходит в архив):
+// - если срок сдачи уже в прошлом, либо
+// - если срок сдачи — сегодня, сегодня будний день (Пн–Пт) и уже 13:30 или позже
+function isHomeworkOverdue(dueDate: string, now: Date = new Date()): boolean {
+  const iso = parseRuDateGuessYear(dueDate, now);
   if (!iso) return false;
-  return iso < new Date().toISOString().slice(0, 10);
+  const today = localIsoDate(now);
+  if (iso < today) return true;
+  if (iso === today) {
+    const dayOfWeek = now.getDay(); // 0=Вс, 6=Сб
+    const isWeekday = dayOfWeek >= 1 && dayOfWeek <= 5;
+    const afterCutoff = now.getHours() > 13 || (now.getHours() === 13 && now.getMinutes() >= 30);
+    return isWeekday && afterCutoff;
+  }
+  return false;
 }
 
 function gradeLabel(grade: number, gradeMax?: number | null): string {
@@ -2815,11 +2829,20 @@ function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const load = useCallback(async () => {
     setLoading(true);
     const data = await api(`get_homework&class_id=${cls.id}`);
-    if (Array.isArray(data)) setItems(data);
+    if (Array.isArray(data)) setItems((data as Homework[]).filter(hw => !isHomeworkOverdue(hw.due_date)));
     setLoading(false);
   }, [cls.id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Раз в минуту проверяем, не наступил ли момент архивации (будний день, 13:30) —
+  // чтобы задания «сегодня на сегодня» сами уходили в архив без перезагрузки страницы
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setItems(prev => prev.filter(hw => !isHomeworkOverdue(hw.due_date)));
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   const openAdd = () => { setEditing(null); setForm({ subject: "", task: "", due_date: "" }); setAttachments([]); setLinkInput(""); setShowAdd(true); };
   const openEdit = (hw: Homework) => { setEditing(hw); setForm({ subject: hw.subject, task: hw.task, due_date: hw.due_date }); setAttachments(hw.attachments || []); setLinkInput(""); setShowAdd(true); };
