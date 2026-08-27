@@ -249,6 +249,42 @@
       "expectedStatus": 401,
       "expectedBody": {"error": "Неверный логин или пароль"},
       "bodyMatcher": "partial"
+    },
+    {
+      "name": "Change password missing fields",
+      "method": "POST",
+      "path": "/?action=change_password",
+      "body": {},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "Укажите текущий и новый пароль"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Change password too short",
+      "method": "POST",
+      "path": "/?action=change_password",
+      "body": {"user_id": 1, "current_password": "teacher2024", "new_password": "123"},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "Новый пароль должен быть не короче 6 символов"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Change password wrong current",
+      "method": "POST",
+      "path": "/?action=change_password",
+      "body": {"user_id": 1, "current_password": "wrongpass", "new_password": "newpass123"},
+      "expectedStatus": 403,
+      "expectedBody": {"error": "Текущий пароль неверен"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Change password user not found",
+      "method": "POST",
+      "path": "/?action=change_password",
+      "body": {"user_id": 999999, "current_password": "anything", "new_password": "newpass123"},
+      "expectedStatus": 404,
+      "expectedBody": {"error": "Пользователь не найден"},
+      "bodyMatcher": "partial"
     }
   ]
 }

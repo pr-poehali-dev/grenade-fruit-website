@@ -363,6 +363,61 @@ function LoginScreen({ onLogin }: { onLogin: (u: User) => void }) {
   );
 }
 
+// ─── Change Password ──────────────────────────────────────
+function ChangePasswordModal({ user, onClose }: { user: User; onClose: () => void }) {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [newPassword2, setNewPassword2] = useState("");
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    if (newPassword !== newPassword2) { setError("Новые пароли не совпадают"); return; }
+    setSaving(true);
+    const res = await api("change_password", "POST", { user_id: user.id, current_password: currentPassword, new_password: newPassword });
+    setSaving(false);
+    if (res.error) { setError(res.error); return; }
+    setSuccess(true);
+  };
+
+  return (
+    <Modal title="Смена пароля" onClose={onClose}>
+      {success ? (
+        <div className="text-center py-2">
+          <div className="text-4xl mb-3">✅</div>
+          <p className="text-sm font-medium mb-4" style={{ color: "#3D1520" }}>Пароль успешно изменён</p>
+          <button type="button" onClick={onClose} className="w-full py-3 rounded-xl font-semibold text-sm"
+            style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)", color: "white" }}>
+            Закрыть
+          </button>
+        </div>
+      ) : (
+        <form onSubmit={submit} className="space-y-3">
+          <Field label="Текущий пароль">
+            <Input type="password" value={currentPassword} onChange={e => setCurrentPassword(e.target.value)} placeholder="••••••••" required />
+          </Field>
+          <Field label="Новый пароль">
+            <Input type="password" value={newPassword} onChange={e => setNewPassword(e.target.value)} placeholder="Минимум 6 символов" required />
+          </Field>
+          <Field label="Повторите новый пароль">
+            <Input type="password" value={newPassword2} onChange={e => setNewPassword2(e.target.value)} placeholder="Минимум 6 символов" required />
+          </Field>
+          {error && (
+            <div className="flex items-center gap-2 p-3 rounded-xl" style={{ background: "rgba(244,67,54,0.06)", border: "1px solid rgba(244,67,54,0.2)" }}>
+              <Icon name="AlertCircle" size={14} className="text-red-500 shrink-0" />
+              <span className="text-xs text-red-600">{error}</span>
+            </div>
+          )}
+          <SaveBtn label={saving ? "Сохраняем..." : "Изменить пароль"} loading={saving} />
+        </form>
+      )}
+    </Modal>
+  );
+}
+
 // ─── Main App ─────────────────────────────────────────────
 export default function Index() {
   const [user, setUser] = useState<User | null>(() => {
@@ -377,6 +432,7 @@ export default function Index() {
   const [tabKey, setTabKey] = useState(0);
   const [showNotifs, setShowNotifs] = useState(false);
   const [showClassPicker, setShowClassPicker] = useState(false);
+  const [showChangePassword, setShowChangePassword] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
   const [chatUnread, setChatUnread] = useState(0);
   const [fontScale, setFontScale] = useState<number>(() => {
@@ -633,12 +689,19 @@ export default function Index() {
               <Icon name="Type" size={13} />
               <span className="hidden sm:inline">{fontScale === 0 ? "Крупный шрифт" : fontScale === 1 ? "Крупнее (А+)" : "Максимум (А++)"}</span>
             </button>
+            <button onClick={() => setShowChangePassword(true)} title="Сменить пароль"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
+              <Icon name="KeyRound" size={13} />
+              <span className="hidden sm:inline">Пароль</span>
+            </button>
             <button onClick={logout} className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
               <Icon name="LogOut" size={13} /> Выйти
             </button>
           </div>
         </div>
       </header>
+
+      {showChangePassword && <ChangePasswordModal user={user} onClose={() => setShowChangePassword(false)} />}
 
       <div className={`max-w-6xl mx-auto px-4 py-5 flex gap-5 ${user.role !== "teacher" ? "justify-center" : ""}`}>
         {/* Left sidebar: class picker (teachers only — parents/students have a single class) */}

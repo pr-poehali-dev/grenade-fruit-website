@@ -1,0 +1,1 @@
+UPDATE t_p60010664_grenade_fruit_websit.users SET is_archived = true WHERE login = 'test_teacher_pwd';

@@ -159,6 +159,8 @@ def handler(event: dict, context) -> dict:
         return handle_mark_read(body)
     if action == "update_email":
         return handle_update_email(body)
+    if action == "change_password":
+        return handle_change_password(body)
     if action == "run_daily_digest":
         return handle_run_daily_digest()
     if action == "get_extended_day_students":
@@ -207,6 +209,18 @@ def handle_login(body):
     conn = get_conn()
     cur = conn.cursor()
 
+    cur.execute(
+        f"SELECT id, login, display_name, role FROM {SCHEMA}.users WHERE login = %s AND password_hash = %s AND role = 'teacher'",
+        (login, password)
+    )
+    user = cur.fetchone()
+    if user:
+        cur.execute(f"UPDATE {SCHEMA}.users SET last_login_at = NOW() WHERE id = %s", (user["id"],))
+        conn.commit()
+        conn.close()
+        return ok({"id": user["id"], "login": user["login"], "role": user["role"],
+                   "display_name": user["display_name"], "child": None, "child_id": None, "class_id": None})
+
     if password == "teacher2024":
         cur.execute(
             f"SELECT id, login, display_name, role FROM {SCHEMA}.users WHERE login = %s AND role = 'teacher'",
@@ -220,9 +234,11 @@ def handle_login(body):
             )
             user = cur.fetchone()
             conn.commit()
+            conn.close()
+            return ok({"id": user["id"], "login": user["login"], "role": user["role"],
+                       "display_name": user["display_name"], "child": None, "child_id": None, "class_id": None})
         conn.close()
-        return ok({"id": user["id"], "login": user["login"], "role": user["role"],
-                   "display_name": user["display_name"], "child": None, "child_id": None, "class_id": None})
+        return err("Неверный логин или пароль", 401)
 
     cur.execute(
         f"""SELECT u.id, u.login, u.display_name, u.role, u.email,
@@ -1382,6 +1398,33 @@ def handle_mark_read(body):
         )
     else:
         cur.execute(f"UPDATE {SCHEMA}.notifications SET is_read = true WHERE parent_id = %s", (parent_id,))
+    conn.commit()
+    conn.close()
+    return ok({"ok": True})
+
+
+# ── Password ──────────────────────────────────────────────
+def handle_change_password(body):
+    """Пользователь (учитель/родитель/ученик) сам меняет свой пароль,
+    подтвердив текущий."""
+    user_id = body.get("user_id")
+    current_password = (body.get("current_password") or "").strip()
+    new_password = (body.get("new_password") or "").strip()
+    if not user_id or not current_password or not new_password:
+        return err("Укажите текущий и новый пароль")
+    if len(new_password) < 6:
+        return err("Новый пароль должен быть не короче 6 символов")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"SELECT id, password_hash FROM {SCHEMA}.users WHERE id = %s", (user_id,))
+    user = cur.fetchone()
+    if not user:
+        conn.close()
+        return err("Пользователь не найден", 404)
+    if user["password_hash"] != current_password:
+        conn.close()
+        return err("Текущий пароль неверен", 403)
+    cur.execute(f"UPDATE {SCHEMA}.users SET password_hash = %s WHERE id = %s", (new_password, user_id))
     conn.commit()
     conn.close()
     return ok({"ok": True})
