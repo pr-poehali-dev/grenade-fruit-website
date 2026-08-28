@@ -1624,7 +1624,7 @@ def handle_get_elective_students():
     cur.execute(
         f"""SELECT es.id as elective_id, es.subject, s.id as student_id, s.full_name,
                    s.class_id, c.display_name as class_display_name, c.name as class_name,
-                   c.grade, c.letter, es.days, es.lesson_slot
+                   c.grade, c.letter, es.days, es.lesson_slot, es.day_slots
             FROM {SCHEMA}.elective_students es
             JOIN {SCHEMA}.students s ON s.id = es.student_id
             LEFT JOIN {SCHEMA}.classes c ON c.id = s.class_id
@@ -1637,25 +1637,51 @@ def handle_get_elective_students():
 
 
 VALID_ELECTIVE_LESSON_SLOTS = ("0", "5", "6", "7")
+VALID_ELECTIVE_DAYS = ("Понедельник", "Вторник", "Среда", "Четверг", "Пятница")
+
+
+def _normalize_day_slots(day_slots):
+    """Проверяет и очищает day_slots: {день: урок}. Невалидные дни/уроки отбрасывает."""
+    if not isinstance(day_slots, dict):
+        return None
+    result = {}
+    for day, slot in day_slots.items():
+        if day not in VALID_ELECTIVE_DAYS:
+            continue
+        slot = str(slot)
+        if slot not in VALID_ELECTIVE_LESSON_SLOTS:
+            continue
+        result[day] = slot
+    return result
 
 
 def handle_add_elective_student(body):
     student_id = body.get("student_id")
     subject = (body.get("subject") or "").strip()
-    days = body.get("days")
-    lesson_slot = str(body.get("lesson_slot") or "5")
     if not student_id or not subject:
         return err("student_id and subject required")
-    if not isinstance(days, list) or not days:
-        days = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница"]
-    if lesson_slot not in VALID_ELECTIVE_LESSON_SLOTS:
-        lesson_slot = "5"
+
+    day_slots = _normalize_day_slots(body.get("day_slots"))
+    if not day_slots:
+        # Обратная совместимость: старый формат days[] + один lesson_slot на все дни
+        days = body.get("days")
+        lesson_slot = str(body.get("lesson_slot") or "5")
+        if lesson_slot not in VALID_ELECTIVE_LESSON_SLOTS:
+            lesson_slot = "5"
+        if not isinstance(days, list) or not days:
+            days = list(VALID_ELECTIVE_DAYS)
+        day_slots = {d: lesson_slot for d in days if d in VALID_ELECTIVE_DAYS}
+
+    days = list(day_slots.keys())
+    lesson_slot = next(iter(day_slots.values()), "5")
+
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
-        f"""INSERT INTO {SCHEMA}.elective_students (student_id, subject, days, lesson_slot) VALUES (%s, %s, %s, %s)
+        f"""INSERT INTO {SCHEMA}.elective_students (student_id, subject, days, lesson_slot, day_slots)
+            VALUES (%s, %s, %s, %s, %s)
             ON CONFLICT (student_id, subject) DO NOTHING RETURNING *""",
-        (student_id, subject, days, lesson_slot)
+        (student_id, subject, days, lesson_slot, json.dumps(day_slots, ensure_ascii=False))
     )
     row = cur.fetchone()
     conn.commit()
@@ -1679,32 +1705,73 @@ def handle_remove_elective_student(body):
 
 
 def handle_update_elective_student_schedule(body):
-    """Обновляет дни недели и номер урока (0, 5, 6 или 7) для записи ученика на факультатив."""
+    """Обновляет расписание записи ученика на факультатив.
+    Принимает либо day_slots целиком ({день: урок}), либо точечное изменение
+    одного дня (day + slot, slot=None чтобы снять день)."""
     student_id = body.get("student_id")
     subject = (body.get("subject") or "").strip()
-    days = body.get("days")
-    lesson_slot = body.get("lesson_slot")
     if not student_id or not subject:
         return err("student_id and subject required")
+
     conn = get_conn()
     cur = conn.cursor()
-    sets = []
-    params = []
-    if isinstance(days, list):
-        sets.append("days = %s")
-        params.append(days)
-    if lesson_slot is not None:
-        lesson_slot = str(lesson_slot)
-        if lesson_slot not in VALID_ELECTIVE_LESSON_SLOTS:
-            return err("lesson_slot must be 0, 5, 6 or 7")
-        sets.append("lesson_slot = %s")
-        params.append(lesson_slot)
-    if not sets:
-        return err("nothing to update")
-    params.extend([student_id, subject])
+
+    day_slots = _normalize_day_slots(body.get("day_slots"))
+
+    if day_slots is None and "day" in body:
+        day = body.get("day")
+        slot = body.get("slot")
+        if day not in VALID_ELECTIVE_DAYS:
+            conn.close()
+            return err("invalid day")
+        cur.execute(f"SELECT day_slots FROM {SCHEMA}.elective_students WHERE student_id = %s AND subject = %s", (student_id, subject))
+        existing = cur.fetchone()
+        if not existing:
+            conn.close()
+            return err("Запись не найдена", 404)
+        current = dict(existing["day_slots"] or {})
+        if slot is None:
+            current.pop(day, None)
+        else:
+            slot = str(slot)
+            if slot not in VALID_ELECTIVE_LESSON_SLOTS:
+                conn.close()
+                return err("slot must be 0, 5, 6 or 7")
+            current[day] = slot
+        day_slots = current
+
+    if day_slots is None:
+        # Совместимость со старым форматом: days[] и/или lesson_slot
+        days = body.get("days")
+        lesson_slot = body.get("lesson_slot")
+        cur.execute(f"SELECT days, day_slots FROM {SCHEMA}.elective_students WHERE student_id = %s AND subject = %s", (student_id, subject))
+        existing = cur.fetchone()
+        if not existing:
+            conn.close()
+            return err("Запись не найдена", 404)
+        current = dict(existing["day_slots"] or {})
+        if isinstance(days, list):
+            valid_days = [d for d in days if d in VALID_ELECTIVE_DAYS]
+            fallback_slot = str(lesson_slot) if lesson_slot else "5"
+            current = {d: current.get(d, fallback_slot) for d in valid_days}
+        if lesson_slot is not None:
+            lesson_slot = str(lesson_slot)
+            if lesson_slot not in VALID_ELECTIVE_LESSON_SLOTS:
+                conn.close()
+                return err("lesson_slot must be 0, 5, 6 or 7")
+            current = {d: lesson_slot for d in current}
+        day_slots = current
+
+    if not day_slots:
+        conn.close()
+        return err("day_slots required")
+
+    days = list(day_slots.keys())
+    lesson_slot = next(iter(day_slots.values()), "5")
     cur.execute(
-        f"UPDATE {SCHEMA}.elective_students SET {', '.join(sets)} WHERE student_id = %s AND subject = %s RETURNING *",
-        tuple(params)
+        f"""UPDATE {SCHEMA}.elective_students SET days = %s, lesson_slot = %s, day_slots = %s
+            WHERE student_id = %s AND subject = %s RETURNING *""",
+        (days, lesson_slot, json.dumps(day_slots, ensure_ascii=False), student_id, subject)
     )
     row = cur.fetchone()
     conn.commit()
