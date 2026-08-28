@@ -1,0 +1,1 @@
+UPDATE t_p60010664_grenade_fruit_websit.recommendations SET subject = 'Математика', text = 'Повторить таблицу умножения дома, обратить внимание на деление.', rec_date = '1 сентября', attachments = '[]'::jsonb WHERE id = 63;

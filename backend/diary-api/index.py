@@ -1326,6 +1326,8 @@ def handle_add_recommendation(body):
     cur = conn.cursor()
     teacher_name = body.get("teacher_name", "Учитель")
     class_id = body.get("class_id")
+    attachments = body.get("attachments") or []
+    attachments_json = json.dumps(attachments, ensure_ascii=False)
 
     if body.get("student_id") == "all":
         cur.execute(f"SELECT id FROM {SCHEMA}.students WHERE class_id = %s AND is_archived IS NOT TRUE", (class_id,))
@@ -1333,9 +1335,9 @@ def handle_add_recommendation(body):
         rows = []
         for sid in student_ids:
             cur.execute(
-                f"""INSERT INTO {SCHEMA}.recommendations (student_id, subject, text, rec_date, teacher_id, class_id)
-                    VALUES (%s, %s, %s, %s, %s, %s) RETURNING *""",
-                (sid, body.get("subject"), body.get("text"), body.get("rec_date"), body.get("teacher_id"), class_id)
+                f"""INSERT INTO {SCHEMA}.recommendations (student_id, subject, text, rec_date, teacher_id, class_id, attachments)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *""",
+                (sid, body.get("subject"), body.get("text"), body.get("rec_date"), body.get("teacher_id"), class_id, attachments_json)
             )
             rows.append(cur.fetchone())
             cur.execute(f"SELECT parent_id FROM {SCHEMA}.parent_students WHERE student_id = %s", (sid,))
@@ -1349,10 +1351,10 @@ def handle_add_recommendation(body):
         return ok({"ok": True, "count": len(rows)}, 201)
 
     cur.execute(
-        f"""INSERT INTO {SCHEMA}.recommendations (student_id, subject, text, rec_date, teacher_id, class_id)
-            VALUES (%s, %s, %s, %s, %s, %s) RETURNING *""",
+        f"""INSERT INTO {SCHEMA}.recommendations (student_id, subject, text, rec_date, teacher_id, class_id, attachments)
+            VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *""",
         (body.get("student_id"), body.get("subject"), body.get("text"),
-         body.get("rec_date"), body.get("teacher_id"), class_id)
+         body.get("rec_date"), body.get("teacher_id"), class_id, attachments_json)
     )
     row = cur.fetchone()
     cur.execute(f"SELECT parent_id FROM {SCHEMA}.parent_students WHERE student_id = %s", (body.get("student_id"),))

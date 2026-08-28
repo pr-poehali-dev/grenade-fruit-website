@@ -34,7 +34,7 @@ interface Attachment { name: string; url: string; type: "file" | "link"; }
 interface Homework { id: number; subject: string; task: string; due_date: string; class_id: number; attachments?: Attachment[]; }
 interface Grade { id: number; student_id: number; subject: string; grade: number; grade_max?: number | null; is_final?: boolean; comment: string; grade_date: string; student_name: string; }
 interface Attendance { id: number; student_id: number; subject: string; status: "absent" | "late"; comment: string; lesson_date: string; student_name: string; }
-interface Recommendation { id: number; subject: string; text: string; rec_date: string; student_name: string; teacher_name: string; }
+interface Recommendation { id: number; subject: string; text: string; rec_date: string; student_name: string; teacher_name: string; attachments?: Attachment[]; }
 interface Notification { id: number; text: string; type: string; is_read: boolean; created_at: string; }
 interface ChatMessage { id: number; class_id: number; sender_id: number; sender_name: string; sender_role: Role; text: string; created_at: string; }
 
@@ -3782,6 +3782,8 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ student_id: "", subject: "", text: "", rec_date: "" });
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [linkInput, setLinkInput] = useState("");
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -3799,17 +3801,29 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   useEffect(() => { load(); }, [load]);
 
+  const openAdd = () => { setForm({ student_id: "", subject: "", text: "", rec_date: "" }); setAttachments([]); setLinkInput(""); setShowAdd(true); };
+
+  const addLink = () => {
+    const url = linkInput.trim();
+    if (!url) return;
+    const name = url.replace(/^https?:\/\//, "").slice(0, 40);
+    setAttachments(a => [...a, { name, url: url.startsWith("http") ? url : `https://${url}`, type: "link" }]);
+    setLinkInput("");
+  };
+
+  const removeAttachment = (idx: number) => setAttachments(a => a.filter((_, i) => i !== idx));
+
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    await api("add_recommendation", "POST", { ...form, teacher_id: user.id, class_id: cls.id, teacher_name: user.display_name || user.login });
+    await api("add_recommendation", "POST", { ...form, teacher_id: user.id, class_id: cls.id, teacher_name: user.display_name || user.login, attachments });
     setSaving(false); setShowAdd(false); load();
   };
 
   return (
     <div>
       <SectionTitle emoji="💬" title={`Рекомендации · ${cls.display_name || cls.name}`} sub={ownStudentName(user)} />
-      {user.role === "teacher" && <AddBtn label="Написать рекомендацию" onClick={() => setShowAdd(true)} />}
+      {user.role === "teacher" && <AddBtn label="Написать рекомендацию" onClick={openAdd} />}
       {loading ? <Loader /> : (
         <div className="space-y-4">
           {recs.length === 0 && <Empty text="Рекомендаций нет" />}
@@ -3828,6 +3842,18 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
                 </div>
               </div>
               <p className="text-sm leading-relaxed" style={{ color: "#3D1520", lineHeight: 1.75 }}>{rec.text}</p>
+              {rec.attachments && rec.attachments.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {rec.attachments.map((a, ai) => (
+                    <a key={ai} href={a.url} target="_blank" rel="noreferrer"
+                      className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-lg font-medium transition-colors hover:opacity-80"
+                      style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>
+                      <Icon name={a.type === "link" ? "Link" : "Paperclip"} size={12} />
+                      {a.name}
+                    </a>
+                  ))}
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -3847,6 +3873,32 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
                 <Field label="Предмет"><Input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="Математика" required /></Field>
                 <Field label="Текст рекомендации"><Textarea rows={5} value={form.text} onChange={e => setForm(f => ({ ...f, text: e.target.value }))} placeholder="Напишите рекомендацию..." required /></Field>
                 <Field label="Дата"><Input value={form.rec_date} onChange={e => setForm(f => ({ ...f, rec_date: e.target.value }))} placeholder="13 мая" required /></Field>
+
+                <Field label="Ссылка">
+                  <div className="flex gap-2">
+                    <Input value={linkInput} onChange={e => setLinkInput(e.target.value)} placeholder="https://..." />
+                    <button type="button" onClick={addLink}
+                      className="px-3 rounded-xl text-sm font-medium shrink-0" style={{ background: "#8B1A2F", color: "white" }}>
+                      <Icon name="Plus" size={15} />
+                    </button>
+                  </div>
+                </Field>
+
+                {attachments.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {attachments.map((a, i) => (
+                      <span key={i} className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-lg font-medium"
+                        style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>
+                        <Icon name={a.type === "link" ? "Link" : "Paperclip"} size={12} />
+                        {a.name}
+                        <button type="button" onClick={() => removeAttachment(i)}>
+                          <Icon name="X" size={12} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 <SaveBtn loading={saving} />
               </form>
             </Modal>
