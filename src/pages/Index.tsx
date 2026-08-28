@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import Icon from "@/components/ui/icon";
 import { exportWeekTemplateToPdf, exportTeacherScheduleToPdf } from "@/lib/exportSchedulePdf";
 import { exportGradesSummaryToPdf } from "@/lib/exportGradesSummaryPdf";
@@ -151,7 +152,7 @@ function AddBtn({ label, onClick }: { label: string; onClick?: () => void }) {
 }
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.4)" }} onClick={onClose}>
       <div className="w-full max-w-md rounded-3xl p-6 shadow-2xl animate-bounce-in max-h-[90dvh] overflow-y-auto" style={{ background: "white" }} onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-5 sticky top-0 -mt-6 -mx-6 px-6 pt-6 pb-3" style={{ background: "white" }}>
@@ -162,7 +163,8 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
