@@ -2872,7 +2872,7 @@ function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
                     <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{hw.subject}</span>
                     <span className="text-xs" style={{ color: "#9B6A7A" }}>до {hw.due_date}</span>
                   </div>
-                  <p className="text-sm leading-relaxed" style={{ color: "#3D1520" }}>{hw.task}</p>
+                  <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: "#3D1520" }}>{hw.task}</p>
                   {hw.attachments && hw.attachments.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       {hw.attachments.map((a, ai) => (
@@ -2964,7 +2964,7 @@ function ArchiveTab({ cls }: { cls: SchoolClass }) {
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{hw.subject}</span>
                 <span className="text-xs" style={{ color: "#9B6A7A" }}>срок был до {hw.due_date}</span>
               </div>
-              <p className="text-sm leading-relaxed" style={{ color: "#3D1520" }}>{hw.task}</p>
+              <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: "#3D1520" }}>{hw.task}</p>
               {hw.attachments && hw.attachments.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {hw.attachments.map((a, ai) => (
@@ -3827,7 +3827,7 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
                   <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{rec.rec_date}</p>
                 </div>
               </div>
-              <p className="text-sm leading-relaxed" style={{ color: "#3D1520", lineHeight: 1.75 }}>{rec.text}</p>
+              <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: "#3D1520", lineHeight: 1.75 }}>{rec.text}</p>
               {rec.attachments && rec.attachments.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
                   {rec.attachments.map((a, ai) => (
