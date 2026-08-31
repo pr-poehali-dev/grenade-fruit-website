@@ -896,27 +896,27 @@ def handle_get_schedule_dates(params):
                 JOIN {SCHEMA}.modules m ON m.id = sd.module_id
                 LEFT JOIN {SCHEMA}.classes c ON c.id = sd.class_id
                 WHERE TRIM(sd.teacher_name) = TRIM(%s) AND m.school_year = %s
-                  AND (c.is_active IS NULL OR c.is_active = true)
+                  AND (c.is_active IS NULL OR c.is_active = true) AND sd.sort_order >= 0
                 ORDER BY sd.lesson_date, sd.sort_order""",
             (teacher_name, school_year or "2026-2027")
         )
     elif lesson_date:
         cur.execute(
             f"""SELECT * FROM {SCHEMA}.schedule_dates
-                WHERE class_id = %s AND lesson_date = %s
+                WHERE class_id = %s AND lesson_date = %s AND sort_order >= 0
                 ORDER BY sort_order""",
             (class_id, lesson_date)
         )
     elif module_id and class_id:
         cur.execute(
             f"""SELECT * FROM {SCHEMA}.schedule_dates
-                WHERE class_id = %s AND module_id = %s
+                WHERE class_id = %s AND module_id = %s AND sort_order >= 0
                 ORDER BY lesson_date, sort_order""",
             (class_id, module_id)
         )
     else:
         cur.execute(
-            f"SELECT * FROM {SCHEMA}.schedule_dates WHERE class_id = %s ORDER BY lesson_date, sort_order",
+            f"SELECT * FROM {SCHEMA}.schedule_dates WHERE class_id = %s AND sort_order >= 0 ORDER BY lesson_date, sort_order",
             (class_id,)
         )
     rows = cur.fetchall()
@@ -1782,17 +1782,27 @@ def handle_update_elective_student_schedule(body):
 
 
 def handle_get_elective_subjects_for_student(params):
-    """Возвращает список названий факультативов, на которые записан конкретный ученик —
-    используется для фильтрации расписания и PDF-экспорта у родителя."""
+    """Возвращает факультативы, на которые записан конкретный ученик, вместе с
+    расписанием по дням ({subject: {день: урок}}) — используется для фильтрации
+    расписания и PDF-экспорта у родителя/ученика: показывать факультатив нужно
+    только в тот день и на тот урок (0/5/6/7), на который ученик реально записан."""
     student_id = params.get("student_id")
     if not student_id:
         return err("student_id required")
     conn = get_conn()
     cur = conn.cursor()
-    cur.execute(f"SELECT subject FROM {SCHEMA}.elective_students WHERE student_id = %s", (student_id,))
+    cur.execute(f"SELECT subject, days, lesson_slot, day_slots FROM {SCHEMA}.elective_students WHERE student_id = %s", (student_id,))
     rows = cur.fetchall()
     conn.close()
-    return ok([r["subject"] for r in rows])
+    result = {}
+    for r in rows:
+        day_slots = r.get("day_slots") or {}
+        if not day_slots:
+            days = r.get("days") or list(VALID_ELECTIVE_DAYS)
+            slot = r.get("lesson_slot") or "5"
+            day_slots = {d: slot for d in days}
+        result[r["subject"]] = day_slots
+    return ok(result)
 
 
 # ── Chat (свой чат в каждом классе: родители этого класса + все учителя) ──

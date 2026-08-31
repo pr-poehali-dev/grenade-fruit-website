@@ -220,11 +220,27 @@ function getSubjectsByGrade(grade: number): string[] {
 
 const isElectiveSubject = (subject: string) => ELECTIVE_SUBJECTS.includes(subject);
 
-// Скрывает из расписания факультативы, на которые ученик не записан вручную учителем.
+// Соответствие номера урока факультатива (0/5/6/7) времени в расписании класса
+const LESSON_SLOT_TIME_MAP: Record<string, string> = { "0": "09:00–09:40", "5": "13:40–14:20", "6": "15:30–16:30", "7": "16:30–17:30" };
+// Начало времени урока без учёта разного вида тире (- vs –) в старых записях
+const timeSlotStart = (ts: string) => (ts || "").split(/[-–]/)[0].trim();
+
+// Скрывает из расписания факультативы, на которые ученик не записан вручную учителем —
+// с учётом конкретного дня недели и урока (0/5/6/7), на который он записан.
 // Обычные уроки не трогает — фильтрует только предметы из ELECTIVE_SUBJECTS.
-function filterVisibleLessons<T extends { subject: string }>(lessons: T[], allowedElectives: Set<string> | null): T[] {
+function filterVisibleLessons<T extends { subject: string; time_slot: string; day_of_week: string }>(
+  lessons: T[],
+  allowedElectives: Record<string, Record<string, string>> | null
+): T[] {
   if (!allowedElectives) return lessons;
-  return lessons.filter(l => !isElectiveSubject(l.subject) || allowedElectives.has(l.subject));
+  return lessons.filter(l => {
+    if (!isElectiveSubject(l.subject)) return true;
+    const daySlots = allowedElectives[l.subject];
+    const slot = daySlots?.[l.day_of_week];
+    if (!slot) return false;
+    const expectedTime = LESSON_SLOT_TIME_MAP[slot];
+    return !expectedTime || timeSlotStart(l.time_slot) === timeSlotStart(expectedTime);
+  });
 }
 
 // ID ученика, за которого "смотрит" текущий пользователь: у родителя — его ребёнок, у ученика — он сам
@@ -981,14 +997,15 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
     Object.fromEntries(DAYS.map(d => [d, [emptySlot()]]))
   );
 
-  // Факультативы, на которые ученик записан вручную учителем — для родителя/ученика
-  // ограничивают видимость расписания, для учителя ограничений нет (видит всё)
-  const [allowedElectives, setAllowedElectives] = useState<Set<string> | null>(null);
+  // Факультативы, на которые ученик записан вручную учителем ({предмет: {день: урок}}) —
+  // для родителя/ученика ограничивают видимость расписания конкретным днём и уроком,
+  // для учителя ограничений нет (видит всё)
+  const [allowedElectives, setAllowedElectives] = useState<Record<string, Record<string, string>> | null>(null);
   const scheduleStudentId = ownStudentId(user);
   useEffect(() => {
     if ((user.role === "parent" || user.role === "student") && scheduleStudentId) {
       api(`get_elective_subjects_for_student&student_id=${scheduleStudentId}`).then(data => {
-        setAllowedElectives(Array.isArray(data) ? new Set(data) : new Set());
+        setAllowedElectives(data && typeof data === "object" && !Array.isArray(data) ? data : {});
       });
     } else {
       setAllowedElectives(null);
@@ -1109,9 +1126,10 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
         })
         .sort((a, b) => a.time_slot.localeCompare(b.time_slot));
 
-      const dayLessons: { time_slot: string; subject: string; teacher_name: string; room: string }[] = uniqueLessons.length > 0
+      const dayLessons: { time_slot: string; subject: string; teacher_name: string; room: string; day_of_week: string }[] = (uniqueLessons.length > 0
         ? uniqueLessons
-        : items.filter(i => i.day_of_week === day).sort((a, b) => a.sort_order - b.sort_order);
+        : items.filter(i => i.day_of_week === day).sort((a, b) => a.sort_order - b.sort_order)
+      ).map(l => ({ ...l, day_of_week: day }));
       lessonsByDayOfWeek[day] = filterVisibleLessons(dayLessons, allowedElectives);
     });
 
