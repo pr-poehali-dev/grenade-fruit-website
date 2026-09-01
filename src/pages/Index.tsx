@@ -3785,6 +3785,7 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<Recommendation | null>(null);
   const [form, setForm] = useState({ student_id: "", subject: "", text: "", rec_date: "" });
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [linkInput, setLinkInput] = useState("");
@@ -3805,7 +3806,9 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   useEffect(() => { load(); }, [load]);
 
-  const openAdd = () => { setForm({ student_id: "", subject: "", text: "", rec_date: "" }); setAttachments([]); setLinkInput(""); setShowAdd(true); };
+  const openAdd = () => { setEditing(null); setForm({ student_id: "", subject: "", text: "", rec_date: "" }); setAttachments([]); setLinkInput(""); setShowAdd(true); };
+
+  const openEdit = (rec: Recommendation) => { setEditing(rec); setForm({ student_id: "", subject: rec.subject, text: rec.text, rec_date: rec.rec_date }); setAttachments(rec.attachments || []); setLinkInput(""); setShowAdd(true); };
 
   const addLink = () => {
     const url = linkInput.trim();
@@ -3820,8 +3823,18 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    await api("add_recommendation", "POST", { ...form, teacher_id: user.id, class_id: cls.id, teacher_name: user.display_name || user.login, attachments });
-    setSaving(false); setShowAdd(false); load();
+    if (editing) {
+      await api("update_recommendation", "POST", { id: editing.id, subject: form.subject, text: form.text, rec_date: form.rec_date, attachments });
+    } else {
+      await api("add_recommendation", "POST", { ...form, teacher_id: user.id, class_id: cls.id, teacher_name: user.display_name || user.login, attachments });
+    }
+    setSaving(false); setShowAdd(false); setEditing(null); load();
+  };
+
+  const removeRec = async (id: number) => {
+    if (!confirm("Удалить рекомендацию?")) return;
+    await api("delete_recommendation", "POST", { id });
+    load();
   };
 
   return (
@@ -3834,9 +3847,9 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
           {recs.map((rec, i) => (
             <div key={rec.id} className="p-5 rounded-2xl card-hover animate-slide-up"
               style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.08)", animationDelay: `${i * 0.08}s`, opacity: 0 }}>
-              <div className="flex items-center gap-3 mb-3">
+              <div className="flex items-start gap-3 mb-3">
                 <div className="w-9 h-9 rounded-full flex items-center justify-center shrink-0 text-lg" style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)" }}>👩‍🏫</div>
-                <div>
+                <div className="flex-1">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     <span className="font-semibold text-sm" style={{ color: "#3D1520" }}>{rec.teacher_name}</span>
                     <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{rec.subject}</span>
@@ -3844,6 +3857,16 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
                   </div>
                   <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{rec.rec_date}</p>
                 </div>
+                {user.role === "teacher" && (
+                  <div className="flex gap-1 shrink-0">
+                    <button onClick={() => openEdit(rec)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100">
+                      <Icon name="Pencil" size={13} style={{ color: "#8B1A2F" }} />
+                    </button>
+                    <button onClick={() => removeRec(rec.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50">
+                      <Icon name="Trash2" size={13} className="text-red-400" />
+                    </button>
+                  </div>
+                )}
               </div>
               <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: "#3D1520", lineHeight: 1.75 }}>{rec.text}</p>
               {rec.attachments && rec.attachments.length > 0 && (
@@ -3865,15 +3888,17 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
       {user.role === "teacher" && (
         <>
           {showAdd && (
-            <Modal title="Новая рекомендация" onClose={() => setShowAdd(false)}>
+            <Modal title={editing ? "Редактировать рекомендацию" : "Новая рекомендация"} onClose={() => { setShowAdd(false); setEditing(null); }}>
               <form onSubmit={save} className="space-y-3">
-                <Field label="Ученик">
-                  <Select value={form.student_id} onChange={e => setForm(f => ({ ...f, student_id: e.target.value }))} required>
-                    <option value="">Выберите ученика</option>
-                    <option value="all">👥 Весь класс</option>
-                    {students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
-                  </Select>
-                </Field>
+                {!editing && (
+                  <Field label="Ученик">
+                    <Select value={form.student_id} onChange={e => setForm(f => ({ ...f, student_id: e.target.value }))} required>
+                      <option value="">Выберите ученика</option>
+                      <option value="all">👥 Весь класс</option>
+                      {students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
+                    </Select>
+                  </Field>
+                )}
                 <Field label="Предмет"><Input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="Математика" required /></Field>
                 <Field label="Текст рекомендации"><Textarea rows={5} value={form.text} onChange={e => setForm(f => ({ ...f, text: e.target.value }))} placeholder="Напишите рекомендацию..." required /></Field>
                 <Field label="Дата"><Input value={form.rec_date} onChange={e => setForm(f => ({ ...f, rec_date: e.target.value }))} placeholder="13 мая" required /></Field>

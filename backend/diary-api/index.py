@@ -153,6 +153,10 @@ def handler(event: dict, context) -> dict:
         return handle_get_recommendations(params)
     if action == "add_recommendation":
         return handle_add_recommendation(body)
+    if action == "update_recommendation":
+        return handle_update_recommendation(body)
+    if action == "delete_recommendation":
+        return handle_delete_recommendation(body)
     if action == "get_notifications":
         return handle_get_notifications(params)
     if action == "mark_read":
@@ -1366,6 +1370,39 @@ def handle_add_recommendation(body):
     conn.commit()
     conn.close()
     return ok(dict(row), 201)
+
+
+def handle_update_recommendation(body):
+    """Редактирует существующую рекомендацию (текст, предмет, дата, вложения)."""
+    rec_id = body.get("id")
+    if not rec_id:
+        return err("id required")
+    attachments = body.get("attachments") or []
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"""UPDATE {SCHEMA}.recommendations SET subject = %s, text = %s, rec_date = %s, attachments = %s
+            WHERE id = %s RETURNING *""",
+        (body.get("subject"), body.get("text"), body.get("rec_date"), json.dumps(attachments, ensure_ascii=False), rec_id)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return err("Не найдено", 404)
+    return ok(dict(row))
+
+
+def handle_delete_recommendation(body):
+    rec_id = body.get("id")
+    if not rec_id:
+        return err("id required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"DELETE FROM {SCHEMA}.recommendations WHERE id = %s", (rec_id,))
+    conn.commit()
+    conn.close()
+    return ok({"ok": True})
 
 
 # ── Notifications ─────────────────────────────────────────
