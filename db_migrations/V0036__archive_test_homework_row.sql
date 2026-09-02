@@ -1,0 +1,1 @@
+UPDATE t_p60010664_grenade_fruit_websit.homework SET due_date = '1 января', task = '[тестовая запись, можно удалить через интерфейс]' WHERE id = 11 AND task = 'ТЕСТ для проверки значка';

@@ -1020,6 +1020,15 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
     setLoadingWeek(false);
   }, [cls.id]);
 
+  // Домашние задания класса — чтобы отметить значком уроки, по которым уже есть ДЗ
+  const [homeworks, setHomeworks] = useState<Homework[]>([]);
+  useEffect(() => {
+    api(`get_homework&class_id=${cls.id}`).then(data => {
+      if (Array.isArray(data)) setHomeworks((data as Homework[]).filter(hw => !isHomeworkOverdue(hw.due_date)));
+    });
+  }, [cls.id]);
+  const subjectsWithHomework = useMemo(() => new Set(homeworks.map(hw => (hw.subject || "").trim())), [homeworks]);
+
   // Load modules once
   useEffect(() => {
     api("get_modules").then(data => {
@@ -1520,7 +1529,14 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                                 style={{ background: isToday ? "rgba(139,26,47,0.04)" : "white", border: `1.5px solid ${isToday ? "rgba(139,26,47,0.12)" : "rgba(139,26,47,0.07)"}` }}>
                                 <span className="text-xs font-medium px-2 py-1 rounded-lg shrink-0" style={{ background: "#F5E0E5", color: "#8B1A2F", whiteSpace: "nowrap" }}>{lesson.time_slot}</span>
                                 <div className="flex-1 min-w-0">
-                                  <p className="font-semibold text-sm truncate" style={{ color: "#3D1520" }}>{lesson.subject}</p>
+                                  <p className="font-semibold text-sm truncate flex items-center gap-1.5" style={{ color: "#3D1520" }}>
+                                    {lesson.subject}
+                                    {subjectsWithHomework.has((lesson.subject || "").trim()) && (
+                                      <span className="shrink-0" title="Есть домашнее задание">
+                                        <Icon name="BookOpen" size={13} style={{ color: "#D4A843" }} />
+                                      </span>
+                                    )}
+                                  </p>
                                   <p className="text-xs mt-0.5" style={{ color: "#9B6A7A" }}>{lesson.teacher_name}</p>
                                 </div>
                                 {lesson.time_slot === "13:40–14:20" && (
