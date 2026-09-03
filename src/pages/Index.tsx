@@ -22,6 +22,7 @@ type Role = "teacher" | "parent" | "student";
 type Tab = "classes" | "parents" | "students_login" | "schedule" | "homework" | "grades" | "attendance" | "recommendations" | "my_schedule" | "extended_day" | "electives" | "archive" | "chat";
 
 interface User { id: number; login: string; role: Role; display_name: string; child?: string; child_id?: number; student_name?: string; student_id?: number; class_id?: number; email?: string; }
+interface LinkedAccount { parent_id: number; child: string; child_id: number; class_id: number; }
 interface SchoolClass { id: number; name: string; grade: number; letter: string; display_name?: string; }
 interface Student { id: number; full_name: string; class_id: number; class_name?: string; }
 interface ScheduleItem { id: number; day_of_week: string; time_slot: string; subject: string; teacher_name: string; room: string; class_id: number; sort_order: number; }
@@ -464,6 +465,9 @@ export default function Index() {
   const [tabKey, setTabKey] = useState(0);
   const [showNotifs, setShowNotifs] = useState(false);
   const [showClassPicker, setShowClassPicker] = useState(false);
+  const [showAccountPicker, setShowAccountPicker] = useState(false);
+  const [linkedAccounts, setLinkedAccounts] = useState<LinkedAccount[]>([]);
+  const [switchingAccount, setSwitchingAccount] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [notifs, setNotifs] = useState<Notification[]>([]);
   const [chatUnread, setChatUnread] = useState(0);
@@ -509,6 +513,30 @@ export default function Index() {
       });
     }
   }, [user]);
+
+  // Другие дети того же родителя (аккаунты с одинаковым ФИО) — для переключения одной кнопкой
+  useEffect(() => {
+    if (user?.role === "parent" && user.id) {
+      api(`get_linked_accounts&parent_id=${user.id}`).then(data => {
+        if (Array.isArray(data)) setLinkedAccounts(data);
+      });
+    } else {
+      setLinkedAccounts([]);
+    }
+  }, [user]);
+
+  const switchAccount = async (toParentId: number) => {
+    if (!user) return;
+    setSwitchingAccount(true);
+    const res = await api("switch_account", "POST", { from_parent_id: user.id, to_parent_id: toParentId });
+    setSwitchingAccount(false);
+    setShowAccountPicker(false);
+    if (!res.error) {
+      login(res as User);
+      setSelectedClass(null);
+      goTab("schedule");
+    }
+  };
 
   // Для родителя/ученика — автовыбор своего класса
   useEffect(() => {
@@ -681,6 +709,36 @@ export default function Index() {
                       style={{ color: tab === "electives" ? "#8B1A2F" : "#3D1520", fontWeight: tab === "electives" ? 700 : 500 }}>
                       <Icon name="Puzzle" size={13} /> Факультативы
                     </button>
+                  </div>
+                )}
+              </div>
+            )}
+            {user.role === "parent" && linkedAccounts.length > 0 && (
+              <div className="relative">
+                <button onClick={() => setShowAccountPicker(!showAccountPicker)} disabled={switchingAccount}
+                  title="Переключиться на другого ребёнка"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all hover:opacity-80 disabled:opacity-50"
+                  style={{ background: "#F5E0E5", color: "#8B1A2F" }}>
+                  <Icon name={switchingAccount ? "Loader2" : "Repeat"} size={13} className={switchingAccount ? "animate-spin" : ""} />
+                  <span className="hidden sm:inline">Сменить ребёнка</span>
+                </button>
+                {showAccountPicker && (
+                  <div className="fixed sm:absolute right-4 sm:right-0 top-16 sm:top-11 rounded-2xl shadow-2xl overflow-hidden z-50 animate-slide-up" style={{ background: "white", border: "1.5px solid rgba(139,26,47,0.12)", minWidth: 200 }}>
+                    <div className="px-4 py-2.5 border-b" style={{ borderColor: "rgba(139,26,47,0.08)" }}>
+                      <span style={{ color: "#5C0F1E", fontFamily: "Cormorant, serif", fontSize: 16, fontWeight: 700 }}>Дети</span>
+                    </div>
+                    <button onClick={() => setShowAccountPicker(false)}
+                      className="w-full text-left px-4 py-2.5 text-sm font-semibold hover:bg-pink-50 transition-colors flex items-center gap-1.5"
+                      style={{ color: "#8B1A2F", borderBottom: "1px solid rgba(139,26,47,0.08)" }}>
+                      <Icon name="Check" size={13} /> {user.child}
+                    </button>
+                    {linkedAccounts.map(acc => (
+                      <button key={acc.parent_id} onClick={() => switchAccount(acc.parent_id)}
+                        className="w-full text-left px-4 py-2.5 text-sm font-medium hover:bg-pink-50 transition-colors"
+                        style={{ color: "#3D1520" }}>
+                        {acc.child}
+                      </button>
+                    ))}
                   </div>
                 )}
               </div>

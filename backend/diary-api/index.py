@@ -77,6 +77,10 @@ def handler(event: dict, context) -> dict:
         return handle_delete_parent(body)
     if action == "update_parent":
         return handle_update_parent(body)
+    if action == "get_linked_accounts":
+        return handle_get_linked_accounts(params)
+    if action == "switch_account":
+        return handle_switch_account(body)
     if action == "get_student_logins":
         return handle_get_student_logins(params)
     if action == "add_student_login":
@@ -448,6 +452,70 @@ def handle_update_parent(body):
     if not row:
         return err("Родитель не найден", 404)
     return ok(dict(row))
+
+
+def handle_get_linked_accounts(params):
+    """Возвращает другие аккаунты-родителя с тем же ФИО (например, семья с двумя детьми,
+    у каждого из которых свой логин на одного и того же родителя) — для быстрого
+    переключения между детьми одной кнопкой без повторного ввода пароля."""
+    parent_id = params.get("parent_id")
+    if not parent_id:
+        return err("parent_id required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"SELECT display_name FROM {SCHEMA}.users WHERE id = %s AND role = 'parent'", (parent_id,))
+    me = cur.fetchone()
+    if not me:
+        conn.close()
+        return err("Родитель не найден", 404)
+    cur.execute(
+        f"""SELECT u.id as parent_id, s.full_name as child, s.id as child_id, s.class_id
+            FROM {SCHEMA}.users u
+            JOIN {SCHEMA}.parent_students ps ON ps.parent_id = u.id
+            JOIN {SCHEMA}.students s ON s.id = ps.student_id
+            WHERE u.role = 'parent' AND u.is_archived = false AND s.is_archived = false
+              AND TRIM(u.display_name) = TRIM(%s) AND u.id != %s
+            ORDER BY s.full_name""",
+        (me["display_name"], parent_id)
+    )
+    rows = cur.fetchall()
+    conn.close()
+    return ok(list(rows))
+
+
+def handle_switch_account(body):
+    """Переключает родителя на другой его аккаунт (другой ребёнок) без ввода пароля —
+    доступно только между аккаунтами с одинаковым ФИО родителя (см. get_linked_accounts)."""
+    from_id = body.get("from_parent_id")
+    to_id = body.get("to_parent_id")
+    if not from_id or not to_id:
+        return err("from_parent_id and to_parent_id required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"SELECT display_name FROM {SCHEMA}.users WHERE id = %s AND role = 'parent'", (from_id,))
+    from_user = cur.fetchone()
+    if not from_user:
+        conn.close()
+        return err("Родитель не найден", 404)
+    cur.execute(
+        f"""SELECT u.id, u.login, u.display_name, u.role, u.email,
+               s.full_name as child, s.id as child_id, s.class_id
+           FROM {SCHEMA}.users u
+           JOIN {SCHEMA}.parent_students ps ON ps.parent_id = u.id
+           JOIN {SCHEMA}.students s ON s.id = ps.student_id
+           WHERE u.id = %s AND u.role = 'parent' AND TRIM(u.display_name) = TRIM(%s)""",
+        (to_id, from_user["display_name"])
+    )
+    target = cur.fetchone()
+    if not target:
+        conn.close()
+        return err("Аккаунт недоступен для переключения", 403)
+    cur.execute(f"UPDATE {SCHEMA}.users SET last_login_at = NOW() WHERE id = %s", (target["id"],))
+    conn.commit()
+    conn.close()
+    return ok({"id": target["id"], "login": target["login"], "role": target["role"],
+               "display_name": target["display_name"], "child": target["child"],
+               "child_id": target["child_id"], "class_id": target["class_id"], "email": target["email"]})
 
 
 # ── Student logins (личный кабинет ученика) ─────────────────
