@@ -100,10 +100,24 @@ function parseRuDateGuessYear(dateStr: string, refDate: Date = new Date()): stri
 function localIsoDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
-// ДЗ считается просроченным (уходит в архив):
+// Текущий момент по московскому времени — независимо от часового пояса устройства пользователя.
+// Возвращает Date, чьи локальные компоненты (getHours/getDay/getDate...) соответствуют времени в Москве:
+// так isHomeworkOverdue() архивирует ДЗ ровно в 13:30 МСК одновременно для всех пользователей.
+function nowMoscow(): Date {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Moscow",
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  }).formatToParts(new Date());
+  const map: Record<string, string> = {};
+  parts.forEach(p => { if (p.type !== "literal") map[p.type] = p.value; });
+  const hour = Number(map.hour) % 24; // Intl может вернуть "24" для полуночи
+  return new Date(Number(map.year), Number(map.month) - 1, Number(map.day), hour, Number(map.minute), Number(map.second));
+}
+// ДЗ считается просроченным (уходит в архив у учеников, родителей, учителей и в продлёнке):
 // - если срок сдачи уже в прошлом, либо
-// - если срок сдачи — сегодня, сегодня будний день (Пн–Пт) и уже 13:30 или позже
-function isHomeworkOverdue(dueDate: string, now: Date = new Date()): boolean {
+// - если срок сдачи — сегодня, сегодня будний день (Пн–Пт) и по московскому времени уже 13:30 или позже
+function isHomeworkOverdue(dueDate: string, now: Date = nowMoscow()): boolean {
   const iso = parseRuDateGuessYear(dueDate, now);
   if (!iso) return false;
   const today = localIsoDate(now);
@@ -1085,6 +1099,13 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
       if (Array.isArray(data)) setHomeworks((data as Homework[]).filter(hw => !isHomeworkOverdue(hw.due_date)));
     });
   }, [cls.id]);
+  // Раз в минуту проверяем архивацию по московскому времени (13:30 по будням) без перезагрузки
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setHomeworks(prev => prev.filter(hw => !isHomeworkOverdue(hw.due_date)));
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
   const subjectsWithHomework = useMemo(() => new Set(homeworks.map(hw => (hw.subject || "").trim())), [homeworks]);
 
   // Load modules once
@@ -2212,11 +2233,19 @@ function MyScheduleTab({ user, classes }: { user: User; classes: SchoolClass[] }
     // Фолбэк на базовый шаблон (schedule), если по модулям текущего года ничего не найдено
     const finalLessons = dedupedDates.length > 0 ? dedupedDates : (Array.isArray(scheduleData) ? scheduleData : []);
     setLessons(finalLessons);
-    if (Array.isArray(homeworkData)) setHomeworks(homeworkData);
+    if (Array.isArray(homeworkData)) setHomeworks((homeworkData as Homework[]).filter(hw => !isHomeworkOverdue(hw.due_date)));
     setLoading(false);
   }, [teacherName, user.id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Раз в минуту проверяем архивацию по московскому времени (13:30 по будням) без перезагрузки
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setHomeworks(prev => prev.filter(hw => !isHomeworkOverdue(hw.due_date)));
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   const homeworkBySubjectClass = useMemo(() => {
     const map = new Map<string, Homework[]>();
@@ -2328,11 +2357,21 @@ function ExtendedDayTab({ classes }: { classes: SchoolClass[] }) {
   const load = useCallback(async () => {
     setLoading(true);
     const data = await api("get_extended_day_students");
-    if (Array.isArray(data)) setStudents(data);
+    if (Array.isArray(data)) {
+      setStudents((data as ExtendedDayStudent[]).map(s => ({ ...s, homework: s.homework.filter(hw => !isHomeworkOverdue(hw.due_date)) })));
+    }
     setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Раз в минуту проверяем архивацию по московскому времени (13:30 по будням) без перезагрузки
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setStudents(prev => prev.map(s => ({ ...s, homework: s.homework.filter(hw => !isHomeworkOverdue(hw.due_date)) })));
+    }, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   const toggleStudentDay = async (s: ExtendedDayStudent, day: string) => {
     const currentDays = s.days && s.days.length > 0 ? s.days : DAYS;
@@ -3042,6 +3081,12 @@ function ArchiveTab({ cls }: { cls: SchoolClass }) {
   }, [cls.id]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Раз в минуту проверяем архивацию по московскому времени (13:30 по будням) без перезагрузки
+  useEffect(() => {
+    const interval = setInterval(() => { load(); }, 60000);
+    return () => clearInterval(interval);
+  }, [load]);
 
   return (
     <div>
