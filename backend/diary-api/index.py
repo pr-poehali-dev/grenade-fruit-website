@@ -454,6 +454,15 @@ def handle_update_parent(body):
     return ok(dict(row))
 
 
+def _normalize_name(name):
+    """Нормализует ФИО для сравнения родителей между аккаунтами: нижний регистр,
+    ё→е, схлопывание пробелов — в реальных данных встречаются написания одного и
+    того же родителя с разными вариантами буквы ё/е и лишними пробелами."""
+    import re
+    s = (name or "").strip().lower().replace("ё", "е")
+    return re.sub(r"\s+", " ", s)
+
+
 def handle_get_linked_accounts(params):
     """Возвращает другие аккаунты-родителя с тем же ФИО (например, семья с двумя детьми,
     у каждого из которых свой логин на одного и того же родителя) — для быстрого
@@ -468,19 +477,21 @@ def handle_get_linked_accounts(params):
     if not me:
         conn.close()
         return err("Родитель не найден", 404)
+    my_key = _normalize_name(me["display_name"])
     cur.execute(
-        f"""SELECT u.id as parent_id, s.full_name as child, s.id as child_id, s.class_id
+        f"""SELECT u.id as parent_id, u.display_name, s.full_name as child, s.id as child_id, s.class_id
             FROM {SCHEMA}.users u
             JOIN {SCHEMA}.parent_students ps ON ps.parent_id = u.id
             JOIN {SCHEMA}.students s ON s.id = ps.student_id
-            WHERE u.role = 'parent' AND u.is_archived = false AND s.is_archived = false
-              AND TRIM(u.display_name) = TRIM(%s) AND u.id != %s
+            WHERE u.role = 'parent' AND u.is_archived = false AND s.is_archived = false AND u.id != %s
             ORDER BY s.full_name""",
-        (me["display_name"], parent_id)
+        (parent_id,)
     )
-    rows = cur.fetchall()
+    rows = [dict(r) for r in cur.fetchall() if _normalize_name(r["display_name"]) == my_key]
+    for r in rows:
+        r.pop("display_name", None)
     conn.close()
-    return ok(list(rows))
+    return ok(rows)
 
 
 def handle_switch_account(body):
@@ -503,11 +514,11 @@ def handle_switch_account(body):
            FROM {SCHEMA}.users u
            JOIN {SCHEMA}.parent_students ps ON ps.parent_id = u.id
            JOIN {SCHEMA}.students s ON s.id = ps.student_id
-           WHERE u.id = %s AND u.role = 'parent' AND TRIM(u.display_name) = TRIM(%s)""",
-        (to_id, from_user["display_name"])
+           WHERE u.id = %s AND u.role = 'parent'""",
+        (to_id,)
     )
     target = cur.fetchone()
-    if not target:
+    if not target or _normalize_name(target["display_name"]) != _normalize_name(from_user["display_name"]):
         conn.close()
         return err("Аккаунт недоступен для переключения", 403)
     cur.execute(f"UPDATE {SCHEMA}.users SET last_login_at = NOW() WHERE id = %s", (target["id"],))
