@@ -114,6 +114,17 @@ function nowMoscow(): Date {
   const hour = Number(map.hour) % 24; // Intl может вернуть "24" для полуночи
   return new Date(Number(map.year), Number(map.month) - 1, Number(map.day), hour, Number(map.minute), Number(map.second));
 }
+// Активные часы школы по московскому времени (9:00–22:00) — вне этого окна автообновление
+// статуса ДЗ на странице приостанавливается: ночью его никто не увидит, а в 9:00 при заходе
+// на страницу данные всё равно подгрузятся заново через обычную загрузку.
+function isActiveHoursMoscow(now: Date = nowMoscow()): boolean {
+  const h = now.getHours();
+  return h >= 9 && h < 22;
+}
+// Как часто на открытой странице перепроверяется момент архивации ДЗ (13:30 МСК по будням).
+// Раз в полчаса вместо раз в минуту — архивация может отобразиться с опозданием до 30 минут,
+// это приемлемо и заметно снижает число повторных проверок/запросов на клиенте.
+const HOMEWORK_ARCHIVE_CHECK_MS = 30 * 60 * 1000;
 // ДЗ считается просроченным (уходит в архив у учеников, родителей, учителей и в продлёнке):
 // - если срок сдачи уже в прошлом, либо
 // - если срок сдачи — сегодня, сегодня будний день (Пн–Пт) и по московскому времени уже 13:30 или позже
@@ -1099,11 +1110,12 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
       if (Array.isArray(data)) setHomeworks((data as Homework[]).filter(hw => !isHomeworkOverdue(hw.due_date)));
     });
   }, [cls.id]);
-  // Раз в минуту проверяем архивацию по московскому времени (13:30 по будням) без перезагрузки
+  // Раз в полчаса в активные часы школы (9:00–22:00 МСК) проверяем архивацию без перезагрузки
   useEffect(() => {
     const interval = setInterval(() => {
+      if (!isActiveHoursMoscow()) return;
       setHomeworks(prev => prev.filter(hw => !isHomeworkOverdue(hw.due_date)));
-    }, 60000);
+    }, HOMEWORK_ARCHIVE_CHECK_MS);
     return () => clearInterval(interval);
   }, []);
   const subjectsWithHomework = useMemo(() => new Set(homeworks.map(hw => (hw.subject || "").trim())), [homeworks]);
@@ -2239,11 +2251,12 @@ function MyScheduleTab({ user, classes }: { user: User; classes: SchoolClass[] }
 
   useEffect(() => { load(); }, [load]);
 
-  // Раз в минуту проверяем архивацию по московскому времени (13:30 по будням) без перезагрузки
+  // Раз в полчаса в активные часы школы (9:00–22:00 МСК) проверяем архивацию без перезагрузки
   useEffect(() => {
     const interval = setInterval(() => {
+      if (!isActiveHoursMoscow()) return;
       setHomeworks(prev => prev.filter(hw => !isHomeworkOverdue(hw.due_date)));
-    }, 60000);
+    }, HOMEWORK_ARCHIVE_CHECK_MS);
     return () => clearInterval(interval);
   }, []);
 
@@ -2365,11 +2378,12 @@ function ExtendedDayTab({ classes }: { classes: SchoolClass[] }) {
 
   useEffect(() => { load(); }, [load]);
 
-  // Раз в минуту проверяем архивацию по московскому времени (13:30 по будням) без перезагрузки
+  // Раз в полчаса в активные часы школы (9:00–22:00 МСК) проверяем архивацию без перезагрузки
   useEffect(() => {
     const interval = setInterval(() => {
+      if (!isActiveHoursMoscow()) return;
       setStudents(prev => prev.map(s => ({ ...s, homework: s.homework.filter(hw => !isHomeworkOverdue(hw.due_date)) })));
-    }, 60000);
+    }, HOMEWORK_ARCHIVE_CHECK_MS);
     return () => clearInterval(interval);
   }, []);
 
@@ -2954,12 +2968,13 @@ function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   useEffect(() => { load(); }, [load]);
 
-  // Раз в минуту проверяем, не наступил ли момент архивации (будний день, 13:30) —
+  // Раз в полчаса в активные часы школы (9:00–22:00 МСК) проверяем архивацию —
   // чтобы задания «сегодня на сегодня» сами уходили в архив без перезагрузки страницы
   useEffect(() => {
     const interval = setInterval(() => {
+      if (!isActiveHoursMoscow()) return;
       setItems(prev => prev.filter(hw => !isHomeworkOverdue(hw.due_date)));
-    }, 60000);
+    }, HOMEWORK_ARCHIVE_CHECK_MS);
     return () => clearInterval(interval);
   }, []);
 
@@ -3082,9 +3097,12 @@ function ArchiveTab({ cls }: { cls: SchoolClass }) {
 
   useEffect(() => { load(); }, [load]);
 
-  // Раз в минуту проверяем архивацию по московскому времени (13:30 по будням) без перезагрузки
+  // Раз в полчаса в активные часы школы (9:00–22:00 МСК) проверяем архивацию без перезагрузки
   useEffect(() => {
-    const interval = setInterval(() => { load(); }, 60000);
+    const interval = setInterval(() => {
+      if (!isActiveHoursMoscow()) return;
+      load();
+    }, HOMEWORK_ARCHIVE_CHECK_MS);
     return () => clearInterval(interval);
   }, [load]);
 
