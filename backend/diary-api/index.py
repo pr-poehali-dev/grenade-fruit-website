@@ -1180,7 +1180,7 @@ def handle_get_homework(params):
             (class_id,)
         )
     else:
-        cur.execute(f"SELECT * FROM {SCHEMA}.homework ORDER BY created_at DESC")
+        cur.execute(f"SELECT * FROM {SCHEMA}.homework ORDER BY created_at DESC LIMIT 200")
     rows = cur.fetchall()
     conn.close()
     return ok(list(rows))
@@ -1198,15 +1198,12 @@ def handle_add_homework(body):
     row = cur.fetchone()
     if body.get("class_id"):
         cur.execute(
-            f"""SELECT DISTINCT ps.parent_id FROM {SCHEMA}.parent_students ps
+            f"""INSERT INTO {SCHEMA}.notifications (parent_id, text, type)
+                SELECT DISTINCT ps.parent_id, %s, 'homework'
+                FROM {SCHEMA}.parent_students ps
                 JOIN {SCHEMA}.students s ON s.id = ps.student_id WHERE s.class_id = %s""",
-            (body.get("class_id"),)
+            (f"Новое ДЗ по «{body.get('subject')}» до {body.get('due_date')}", body.get("class_id"))
         )
-        for p in cur.fetchall():
-            cur.execute(
-                f"INSERT INTO {SCHEMA}.notifications (parent_id, text, type) VALUES (%s, %s, 'homework')",
-                (p["parent_id"], f"Новое ДЗ по «{body.get('subject')}» до {body.get('due_date')}")
-            )
     conn.commit()
     conn.close()
     return ok(dict(row), 201)
@@ -1271,12 +1268,11 @@ def handle_add_grade(body):
     )
     row = cur.fetchone()
     grade_label = f"{body.get('grade')}/{grade_max}" if grade_max else body.get("grade")
-    cur.execute(f"SELECT parent_id FROM {SCHEMA}.parent_students WHERE student_id = %s", (body.get("student_id"),))
-    for p in cur.fetchall():
-        cur.execute(
-            f"INSERT INTO {SCHEMA}.notifications (parent_id, text, type) VALUES (%s, %s, 'grade')",
-            (p["parent_id"], f"Новая отметка по {body.get('subject')}: {grade_label} ⭐")
-        )
+    cur.execute(
+        f"""INSERT INTO {SCHEMA}.notifications (parent_id, text, type)
+            SELECT parent_id, %s, 'grade' FROM {SCHEMA}.parent_students WHERE student_id = %s""",
+        (f"Новая отметка по {body.get('subject')}: {grade_label} ⭐", body.get("student_id"))
+    )
     conn.commit()
     conn.close()
     return ok(dict(row), 201)
@@ -1324,13 +1320,12 @@ def handle_add_attendance(body):
         (student_id, class_id, subject, status, body.get("comment", ""), lesson_date, body.get("teacher_id"))
     )
     row = cur.fetchone()
-    cur.execute(f"SELECT parent_id FROM {SCHEMA}.parent_students WHERE student_id = %s", (student_id,))
     label = "Опоздание" if status == "late" else "Отсутствие"
-    for p in cur.fetchall():
-        cur.execute(
-            f"INSERT INTO {SCHEMA}.notifications (parent_id, text, type) VALUES (%s, %s, 'attendance')",
-            (p["parent_id"], f"{label} по «{subject}» ({lesson_date})")
-        )
+    cur.execute(
+        f"""INSERT INTO {SCHEMA}.notifications (parent_id, text, type)
+            SELECT parent_id, %s, 'attendance' FROM {SCHEMA}.parent_students WHERE student_id = %s""",
+        (f"{label} по «{subject}» ({lesson_date})", student_id)
+    )
     conn.commit()
     conn.close()
     return ok(dict(row), 201)
@@ -1413,22 +1408,25 @@ def handle_add_recommendation(body):
     attachments_json = json.dumps(attachments, ensure_ascii=False)
 
     if body.get("student_id") == "all":
-        cur.execute(f"SELECT id FROM {SCHEMA}.students WHERE class_id = %s AND is_archived IS NOT TRUE", (class_id,))
-        student_ids = [s["id"] for s in cur.fetchall()]
-        rows = []
-        for sid in student_ids:
-            cur.execute(
-                f"""INSERT INTO {SCHEMA}.recommendations (student_id, subject, text, rec_date, teacher_id, class_id, attachments)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING *""",
-                (sid, body.get("subject"), body.get("text"), body.get("rec_date"), body.get("teacher_id"), class_id, attachments_json)
-            )
-            rows.append(cur.fetchone())
-            cur.execute(f"SELECT parent_id FROM {SCHEMA}.parent_students WHERE student_id = %s", (sid,))
-            for p in cur.fetchall():
-                cur.execute(
-                    f"INSERT INTO {SCHEMA}.notifications (parent_id, text, type) VALUES (%s, %s, 'recommendation')",
-                    (p["parent_id"], f"Новая рекомендация по {body.get('subject')} от {teacher_name}")
-                )
+        # Один INSERT ... SELECT на весь класс вместо N отдельных вставок (было 2N+ запросов)
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.recommendations (student_id, subject, text, rec_date, teacher_id, class_id, attachments)
+                SELECT id, %s, %s, %s, %s, %s, %s FROM {SCHEMA}.students
+                WHERE class_id = %s AND is_archived IS NOT TRUE
+                RETURNING *""",
+            (body.get("subject"), body.get("text"), body.get("rec_date"), body.get("teacher_id"),
+             class_id, attachments_json, class_id)
+        )
+        rows = cur.fetchall()
+        # Уведомления всем родителям всех затронутых учеников одним запросом
+        cur.execute(
+            f"""INSERT INTO {SCHEMA}.notifications (parent_id, text, type)
+                SELECT DISTINCT ps.parent_id, %s, 'recommendation'
+                FROM {SCHEMA}.parent_students ps
+                JOIN {SCHEMA}.students s ON s.id = ps.student_id
+                WHERE s.class_id = %s AND s.is_archived IS NOT TRUE""",
+            (f"Новая рекомендация по {body.get('subject')} от {teacher_name}", class_id)
+        )
         conn.commit()
         conn.close()
         return ok({"ok": True, "count": len(rows)}, 201)
@@ -1440,12 +1438,11 @@ def handle_add_recommendation(body):
          body.get("rec_date"), body.get("teacher_id"), class_id, attachments_json)
     )
     row = cur.fetchone()
-    cur.execute(f"SELECT parent_id FROM {SCHEMA}.parent_students WHERE student_id = %s", (body.get("student_id"),))
-    for p in cur.fetchall():
-        cur.execute(
-            f"INSERT INTO {SCHEMA}.notifications (parent_id, text, type) VALUES (%s, %s, 'recommendation')",
-            (p["parent_id"], f"Новая рекомендация по {body.get('subject')} от {teacher_name}")
-        )
+    cur.execute(
+        f"""INSERT INTO {SCHEMA}.notifications (parent_id, text, type)
+            SELECT parent_id, %s, 'recommendation' FROM {SCHEMA}.parent_students WHERE student_id = %s""",
+        (f"Новая рекомендация по {body.get('subject')} от {teacher_name}", body.get("student_id"))
+    )
     conn.commit()
     conn.close()
     return ok(dict(row), 201)

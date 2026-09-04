@@ -1,0 +1,1 @@
+UPDATE notifications SET is_read = true, emailed = true WHERE id IN (643,644,645,646,647,648,649,650,651,652,653,654,655,656,657,658);
