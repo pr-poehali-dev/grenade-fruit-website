@@ -1035,18 +1035,21 @@ export default function Index() {
 // ─── Schedule Tab ──────────────────────────────────────────
 type SchedView = "week" | "module";
 
-// Возвращает даты текущей недели (пн–пт) в формате YYYY-MM-DD
+// Возвращает даты недели (пн–пт, выходные никогда не показываются) в формате YYYY-MM-DD.
+// В субботу и воскресенье — как только закончилась пятница — сразу показываем следующую неделю,
+// а не уже прошедшую текущую.
 function getCurrentWeekDates(): { iso: string; dayName: string }[] {
-  const today = new Date();
-  const dow = today.getDay(); // 0=вс
+  const today = nowMoscow();
+  const dow = today.getDay(); // 0=вс, 6=сб
+  const daysToMonday = dow === 0 ? 1 : dow === 6 ? 2 : -(dow - 1);
   const monday = new Date(today);
-  monday.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
+  monday.setDate(today.getDate() + daysToMonday);
   const result = [];
   const DNAMES = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница"];
   for (let i = 0; i < 5; i++) {
     const d = new Date(monday);
     d.setDate(monday.getDate() + i);
-    result.push({ iso: d.toISOString().split("T")[0], dayName: DNAMES[i] });
+    result.push({ iso: localIsoDate(d), dayName: DNAMES[i] });
   }
   return result;
 }
@@ -1528,7 +1531,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
         <>
           {(loadingWeekDates || loadingWeek) ? <Loader /> : (() => {
             const weekDates = getCurrentWeekDates();
-            const todayIso = new Date().toISOString().split("T")[0];
+            const todayIso = localIsoDate(nowMoscow());
             return (
               <div className="space-y-4">
                 {weekDates.map(({ iso, dayName }) => {
