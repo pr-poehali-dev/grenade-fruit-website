@@ -1310,8 +1310,8 @@ def handle_add_attendance(body):
     status = body.get("status")
     lesson_date = body.get("lesson_date")
     class_id = body.get("class_id")
-    if not student_id or not subject or status not in ("absent", "late") or not lesson_date:
-        return err("student_id, subject, status (absent/late), lesson_date required")
+    if not student_id or not subject or status not in ("absent", "late", "no_homework") or not lesson_date:
+        return err("student_id, subject, status (absent/late/no_homework), lesson_date required")
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -1320,7 +1320,7 @@ def handle_add_attendance(body):
         (student_id, class_id, subject, status, body.get("comment", ""), lesson_date, body.get("teacher_id"))
     )
     row = cur.fetchone()
-    label = "Опоздание" if status == "late" else "Отсутствие"
+    label = "Опоздание" if status == "late" else ("Отсутствие" if status == "absent" else "Не сделано домашнее задание")
     cur.execute(
         f"""INSERT INTO {SCHEMA}.notifications (parent_id, text, type)
             SELECT parent_id, %s, 'attendance' FROM {SCHEMA}.parent_students WHERE student_id = %s""",
@@ -1334,8 +1334,8 @@ def handle_add_attendance(body):
 def handle_update_attendance(body):
     aid = body.get("id")
     status = body.get("status")
-    if not aid or status not in ("absent", "late"):
-        return err("id, status (absent/late) required")
+    if not aid or status not in ("absent", "late", "no_homework"):
+        return err("id, status (absent/late/no_homework) required")
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
