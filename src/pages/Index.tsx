@@ -100,6 +100,11 @@ function parseRuDateGuessYear(dateStr: string, refDate: Date = new Date()): stri
 function localIsoDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+// Ключ для группировки отметок/записей по предмету, устойчивый к лишним пробелам и разнице
+// в регистре ("Математика", " математика ", "МАТЕМАТИКА" — один и тот же предмет)
+function subjectKey(subject: string): string {
+  return (subject || "").trim().toLowerCase().replace(/\s+/g, " ");
+}
 // Текущий момент по московскому времени — независимо от часового пояса устройства пользователя.
 // Возвращает Date, чьи локальные компоненты (getHours/getDay/getDate...) соответствуют времени в Москве:
 // так isHomeworkOverdue() архивирует ДЗ ровно в 13:30 МСК одновременно для всех пользователей.
@@ -3389,16 +3394,19 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
     return [...map.values()].sort((a, b) => a.iso.localeCompare(b.iso)).map(e => ({ date: e.label, percent: Math.round(e.total / e.count) }));
   }, [selectedModule]);
 
-  // Средний % ребёнка за модуль в разбивке по предметам, с графиком динамики по каждому предмету — для родителя/ученика
+  // Средний % ребёнка за модуль в разбивке по предметам, с графиком динамики по каждому предмету — для родителя/ученика.
+  // Группировка идёт по нормализованному названию предмета (без учёта лишних пробелов и регистра),
+  // чтобы "Математика" и " математика " не расходились на два разных предмета.
   const childSubjectStats = useMemo(() => {
     if (user.role === "teacher") return [];
-    const map = new Map<string, Grade[]>();
+    const map = new Map<string, { subject: string; recs: Grade[] }>();
     moduleGrades.forEach(g => {
-      if (!map.has(g.subject)) map.set(g.subject, []);
-      map.get(g.subject)!.push(g);
+      const key = subjectKey(g.subject);
+      if (!map.has(key)) map.set(key, { subject: g.subject.trim(), recs: [] });
+      map.get(key)!.recs.push(g);
     });
-    return [...map.entries()]
-      .map(([subject, recs]) => ({
+    return [...map.values()]
+      .map(({ subject, recs }) => ({
         subject,
         count: recs.length,
         avgPct: Math.round(recs.reduce((sum, g) => sum + gradeToPercent(g.grade, g.grade_max), 0) / recs.length),
@@ -3407,18 +3415,20 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
       .sort((a, b) => a.subject.localeCompare(b.subject, "ru"));
   }, [moduleGrades, user.role, buildDateChart]);
 
-  // Средний % по каждому ученику в разбивке по каждому предмету отдельно, с графиком динамики — для учителя
+  // Средний % по каждому ученику в разбивке по каждому предмету отдельно, с графиком динамики — для учителя.
+  // Тоже группируем по нормализованному названию предмета.
   const teacherSubjectStats = useMemo(() => {
     if (user.role !== "teacher") return [];
-    const bySubject = new Map<string, Map<number, Grade[]>>();
+    const bySubject = new Map<string, { subject: string; studMap: Map<number, Grade[]> }>();
     moduleGrades.forEach(g => {
-      if (!bySubject.has(g.subject)) bySubject.set(g.subject, new Map());
-      const studMap = bySubject.get(g.subject)!;
+      const key = subjectKey(g.subject);
+      if (!bySubject.has(key)) bySubject.set(key, { subject: g.subject.trim(), studMap: new Map() });
+      const studMap = bySubject.get(key)!.studMap;
       if (!studMap.has(g.student_id)) studMap.set(g.student_id, []);
       studMap.get(g.student_id)!.push(g);
     });
-    return [...bySubject.entries()]
-      .map(([subject, studMap]) => ({
+    return [...bySubject.values()]
+      .map(({ subject, studMap }) => ({
         subject,
         students: [...studMap.entries()].map(([studentId, recs]) => ({
           studentId,
@@ -3441,15 +3451,17 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
     return map;
   }, [moduleGrades]);
 
-  // Список предметов ученика за модуль со всеми отметками — для экспорта PDF-сводки
+  // Список предметов ученика за модуль со всеми отметками — для экспорта PDF-сводки.
+  // Группировка по нормализованному названию предмета, чтобы лишние пробелы/регистр не плодили дубли.
   const buildSubjectSummary = useCallback((studentId: number) => {
-    const bySubject = new Map<string, Grade[]>();
+    const bySubject = new Map<string, { subject: string; recs: Grade[] }>();
     moduleGrades.filter(g => g.student_id === studentId).forEach(g => {
-      if (!bySubject.has(g.subject)) bySubject.set(g.subject, []);
-      bySubject.get(g.subject)!.push(g);
+      const key = subjectKey(g.subject);
+      if (!bySubject.has(key)) bySubject.set(key, { subject: g.subject.trim(), recs: [] });
+      bySubject.get(key)!.recs.push(g);
     });
-    return [...bySubject.entries()]
-      .map(([subject, recs]) => {
+    return [...bySubject.values()]
+      .map(({ subject, recs }) => {
         const sorted = recs.slice().sort((a, b) => {
           const ia = selectedModule ? parseRuDateInModule(a.grade_date, selectedModule) || "" : "";
           const ib = selectedModule ? parseRuDateInModule(b.grade_date, selectedModule) || "" : "";
