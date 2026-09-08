@@ -79,13 +79,38 @@ const RU_MONTHS: Record<string, number> = {
   "января": 0, "февраля": 1, "марта": 2, "апреля": 3, "мая": 4, "июня": 5,
   "июля": 6, "августа": 7, "сентября": 8, "октября": 9, "ноября": 10, "декабря": 11,
 };
-// due_date хранится без года ("14 мая") — подбираем ближайший к сегодня год (прошлый/текущий/следующий)
+// due_date вводится учителем свободным текстом и хранится как есть, часто без года ("14 мая",
+// но также встречается "7.09", "04.09.2026", "7 сентября." с лишними пробелами/точками).
+// Разбирает оба формата: "ДД <месяц по-русски>" и "ДД.ММ" / "ДД.ММ.ГГГГ" / "ДД/ММ".
+// Если год не указан — подбираем ближайший к сегодня (прошлый/текущий/следующий).
 function parseRuDateGuessYear(dateStr: string, refDate: Date = new Date()): string | null {
-  const parts = (dateStr || "").trim().toLowerCase().split(" ");
+  const clean = (dateStr || "").trim().toLowerCase().replace(/[.,]+$/, "").trim();
+  if (!clean) return null;
+
+  // Числовой формат: ДД.ММ или ДД.ММ.ГГГГ или ДД/ММ/ГГГГ
+  const numMatch = clean.match(/^(\d{1,2})[.\/](\d{1,2})(?:[.\/](\d{4}))?$/);
+  if (numMatch) {
+    const day = parseInt(numMatch[1], 10);
+    const month = parseInt(numMatch[2], 10) - 1;
+    if (numMatch[3]) {
+      const year = parseInt(numMatch[3], 10);
+      const d = new Date(year, month, day);
+      if (d.getMonth() !== month) return null;
+      return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+    return closestYearIso(day, month, refDate);
+  }
+
+  // Текстовый формат: "ДД <месяц по-русски>" (год не указывается)
+  const parts = clean.split(/\s+/);
   if (parts.length < 2) return null;
   const day = parseInt(parts[0], 10);
   const month = RU_MONTHS[parts[1]];
   if (isNaN(day) || month === undefined) return null;
+  return closestYearIso(day, month, refDate);
+}
+// Подбирает ближайший к refDate год (прошлый/текущий/следующий) для дня+месяца без года
+function closestYearIso(day: number, month: number, refDate: Date): string | null {
   const refYear = refDate.getFullYear();
   let best: { iso: string; diff: number } | null = null;
   for (const year of [refYear - 1, refYear, refYear + 1]) {
