@@ -7,14 +7,37 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContaine
 
 const API = "https://functions.poehali.dev/4adc107f-8465-4183-bc1a-9345fd1468dc";
 
+// Биллинг backend-функции считается как «число вызовов × таймаут», а не по факту потраченного
+// времени — поэтому каждый лишний запрос напрямую стоит денег. Большинство GET-справочников
+// (ученики, модули, расписание и т.п.) почти не меняются от секунды к секунде: если разные вкладки
+// за короткое окно просят одни и те же данные — отдаём их из короткоживущего кэша вместо похода
+// на backend. Данные с реальным временем (чат) в кэш не попадают — см. NO_CACHE_PREFIXES ниже.
+const GET_CACHE_TTL_MS = 15000;
+const getCache = new Map<string, { data: unknown; ts: number }>();
+const NO_CACHE_PREFIXES = ["get_chat_messages", "get_chat_unread_count"];
+// Действия, которые не должны сбрасывать общий кэш чтения при вызове — это фоновые
+// "отметки о прочтении", они не меняют данные, которые кэшируются
+const CACHE_CLEAR_EXEMPT_ACTIONS = new Set(["mark_read", "mark_chat_read"]);
+
 async function api(action: string, method = "GET", body?: object) {
+  const cacheable = method === "GET" && !NO_CACHE_PREFIXES.some(p => action.startsWith(p));
+  if (cacheable) {
+    const cached = getCache.get(action);
+    if (cached && Date.now() - cached.ts < GET_CACHE_TTL_MS) return cached.data;
+  } else if (method !== "GET" && !CACHE_CLEAR_EXEMPT_ACTIONS.has(action)) {
+    // Любое изменение данных могло затронуть закэшированные списки — сбрасываем кэш целиком,
+    // чтобы следующие загрузки показали свежие данные, а не устаревшие из кэша
+    getCache.clear();
+  }
   const url = `${API}/?action=${action}`;
   const res = await fetch(url, {
     method,
     headers: { "Content-Type": "application/json" },
     body: body ? JSON.stringify(body) : undefined,
   });
-  return res.json();
+  const data = await res.json();
+  if (cacheable) getCache.set(action, { data, ts: Date.now() });
+  return data;
 }
 
 // ─── Types ────────────────────────────────────────────────
@@ -3209,9 +3232,13 @@ function ChatTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   useEffect(() => { load(); }, [load]);
 
-  // Пуллинг новых сообщений раз в 4 секунды
+  // Пуллинг новых сообщений раз в 15 секунд — пока вкладка браузера активна.
+  // Свёрнутая/фоновая вкладка никем не читается прямо сейчас, поэтому опрос на это время
+  // останавливаем: это самый частый запрос во всём приложении, и именно он сильнее всего
+  // влияет на счёт вызовов backend.
   useEffect(() => {
-    const interval = setInterval(async () => {
+    const poll = async () => {
+      if (document.hidden) return;
       const data = await api(`get_chat_messages&class_id=${cls.id}&user_id=${user.id}&role=${user.role}`);
       if (Array.isArray(data) && data.length > 0) {
         const newestId = data[data.length - 1].id;
@@ -3221,8 +3248,11 @@ function ChatTab({ cls, user }: { cls: SchoolClass; user: User }) {
           api("mark_chat_read", "POST", { class_id: cls.id, user_id: user.id });
         }
       }
-    }, 4000);
-    return () => clearInterval(interval);
+    };
+    const interval = setInterval(poll, 15000);
+    const onVisible = () => { if (!document.hidden) poll(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { clearInterval(interval); document.removeEventListener("visibilitychange", onVisible); };
   }, [cls.id, user.id, user.role]);
 
   useEffect(() => {
