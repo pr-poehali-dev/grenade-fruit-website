@@ -174,6 +174,12 @@ function isActiveHoursMoscow(now: Date = nowMoscow()): boolean {
   const h = now.getHours();
   return h >= 9 && h < 22;
 }
+// Рабочие часы чата по московскому времени (10:00–20:00) — окно уже, чем общие активные часы
+// школы, потому что переписка родителей с учителем актуальна только в течение учебного дня.
+function isChatActiveHoursMoscow(now: Date = nowMoscow()): boolean {
+  const h = now.getHours();
+  return h >= 10 && h < 20;
+}
 // Как часто в активные часы школы перепроверяются фоновые данные на открытой странице
 // (архивация ДЗ в 13:30 МСК по будням, счётчик непрочитанных сообщений чата и т.п.).
 // Раз в полчаса вместо раз в минуту/5 секунд — заметно снижает число фоновых запросов,
@@ -3232,13 +3238,12 @@ function ChatTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   useEffect(() => { load(); }, [load]);
 
-  // Пуллинг новых сообщений раз в 15 секунд — пока вкладка браузера активна.
-  // Свёрнутая/фоновая вкладка никем не читается прямо сейчас, поэтому опрос на это время
-  // останавливаем: это самый частый запрос во всём приложении, и именно он сильнее всего
-  // влияет на счёт вызовов backend.
+  // Пуллинг новых сообщений раз в час, только в рабочее окно чата (10:00–20:00 МСК)
+  // и пока вкладка браузера активна. Это самый частый запрос во всём приложении, и именно
+  // он сильнее всего влияет на счёт вызовов backend, поэтому вне учебного дня опрос не идёт.
   useEffect(() => {
     const poll = async () => {
-      if (document.hidden) return;
+      if (document.hidden || !isChatActiveHoursMoscow()) return;
       const data = await api(`get_chat_messages&class_id=${cls.id}&user_id=${user.id}&role=${user.role}`);
       if (Array.isArray(data) && data.length > 0) {
         const newestId = data[data.length - 1].id;
@@ -3249,7 +3254,7 @@ function ChatTab({ cls, user }: { cls: SchoolClass; user: User }) {
         }
       }
     };
-    const interval = setInterval(poll, 15000);
+    const interval = setInterval(poll, 60 * 60 * 1000);
     const onVisible = () => { if (!document.hidden) poll(); };
     document.addEventListener("visibilitychange", onVisible);
     return () => { clearInterval(interval); document.removeEventListener("visibilitychange", onVisible); };
