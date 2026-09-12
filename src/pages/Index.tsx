@@ -3387,16 +3387,19 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [showSummary, setShowSummary] = useState(false);
   const [exportStudentId, setExportStudentId] = useState("");
 
+  // Для учителя backend сразу отдаёт список учеников класса вместе с оценками
+  // (include_students=1) — один вызов вместо двух отдельных к backend-функции.
   const load = useCallback(async () => {
     setLoading(true);
     const ownId = ownStudentId(user);
-    const query = ownId ? `student_id=${ownId}` : `class_id=${cls.id}`;
-    const [g, s] = await Promise.all([
-      api(`get_grades&${query}`),
-      user.role === "teacher" ? api(`get_students&class_id=${cls.id}`) : Promise.resolve([]),
-    ]);
-    if (Array.isArray(g)) setGrades(g);
-    if (Array.isArray(s)) setStudents(s);
+    const query = ownId ? `student_id=${ownId}` : `class_id=${cls.id}&include_students=1`;
+    const data = await api(`get_grades&${query}`);
+    if (Array.isArray(data)) {
+      setGrades(data);
+    } else if (data && Array.isArray(data.items)) {
+      setGrades(data.items);
+      if (Array.isArray(data.students)) setStudents(data.students);
+    }
     setLoading(false);
   }, [cls.id, user]);
 
@@ -3800,16 +3803,19 @@ function AttendanceTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [selectedModule, setSelectedModule] = useState<Module | null>(null);
   const [showSummary, setShowSummary] = useState(false);
 
+  // Для учителя backend сразу отдаёт список учеников класса вместе с посещаемостью
+  // (include_students=1) — один вызов вместо двух отдельных к backend-функции.
   const load = useCallback(async () => {
     setLoading(true);
     const ownId = ownStudentId(user);
-    const query = ownId ? `student_id=${ownId}` : `class_id=${cls.id}`;
-    const [a, s] = await Promise.all([
-      api(`get_attendance&${query}`),
-      user.role === "teacher" ? api(`get_students&class_id=${cls.id}`) : Promise.resolve([]),
-    ]);
-    if (Array.isArray(a)) setRecords(a);
-    if (Array.isArray(s)) setStudents(s);
+    const query = ownId ? `student_id=${ownId}` : `class_id=${cls.id}&include_students=1`;
+    const data = await api(`get_attendance&${query}`);
+    if (Array.isArray(data)) {
+      setRecords(data);
+    } else if (data && Array.isArray(data.items)) {
+      setRecords(data.items);
+      if (Array.isArray(data.students)) setStudents(data.students);
+    }
     setLoading(false);
   }, [cls.id, user]);
 
@@ -4027,16 +4033,19 @@ function RecsTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [linkInput, setLinkInput] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // Для учителя backend сразу отдаёт список учеников класса вместе с рекомендациями
+  // (include_students=1) — один вызов вместо двух отдельных к backend-функции.
   const load = useCallback(async () => {
     setLoading(true);
     const ownId = ownStudentId(user);
-    const query = ownId ? `student_id=${ownId}` : `class_id=${cls.id}`;
-    const [r, s] = await Promise.all([
-      api(`get_recommendations&${query}`),
-      user.role === "teacher" ? api(`get_students&class_id=${cls.id}`) : Promise.resolve([]),
-    ]);
-    if (Array.isArray(r)) setRecs(r);
-    if (Array.isArray(s)) setStudents(s);
+    const query = ownId ? `student_id=${ownId}` : `class_id=${cls.id}&include_students=1`;
+    const data = await api(`get_recommendations&${query}`);
+    if (Array.isArray(data)) {
+      setRecs(data);
+    } else if (data && Array.isArray(data.items)) {
+      setRecs(data.items);
+      if (Array.isArray(data.students)) setStudents(data.students);
+    }
     setLoading(false);
   }, [cls.id, user]);
 
@@ -4205,14 +4214,15 @@ function ParentsTab({ cls }: { cls: SchoolClass }) {
   const [editName, setEditName] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
 
+  // backend сразу отдаёт список учеников класса вместе с родителями (include_students=1) —
+  // один вызов вместо двух отдельных к backend-функции.
   const load = useCallback(async () => {
     setLoading(true);
-    const [p, s] = await Promise.all([
-      api(`get_parents&class_id=${cls.id}`),
-      api(`get_students&class_id=${cls.id}`),
-    ]);
-    if (Array.isArray(p)) setParents(p);
-    if (Array.isArray(s)) setStudents(s);
+    const data = await api(`get_parents&class_id=${cls.id}&include_students=1`);
+    if (data && Array.isArray(data.items)) {
+      setParents(data.items);
+      if (Array.isArray(data.students)) setStudents(data.students);
+    }
     setLoading(false);
   }, [cls.id]);
 
@@ -4336,14 +4346,15 @@ function StudentLoginsTab({ cls }: { cls: SchoolClass }) {
   const [editPassword, setEditPassword] = useState("");
   const [savingEdit, setSavingEdit] = useState(false);
 
+  // backend сразу отдаёт список учеников класса вместе с логинами (include_students=1) —
+  // один вызов вместо двух отдельных к backend-функции.
   const load = useCallback(async () => {
     setLoading(true);
-    const [l, s] = await Promise.all([
-      api(`get_student_logins&class_id=${cls.id}`),
-      api(`get_students&class_id=${cls.id}`),
-    ]);
-    if (Array.isArray(l)) setLogins(l);
-    if (Array.isArray(s)) setStudents(s);
+    const data = await api(`get_student_logins&class_id=${cls.id}&include_students=1`);
+    if (data && Array.isArray(data.items)) {
+      setLogins(data.items);
+      if (Array.isArray(data.students)) setStudents(data.students);
+    }
     setLoading(false);
   }, [cls.id]);
 

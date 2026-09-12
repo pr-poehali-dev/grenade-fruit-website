@@ -390,6 +390,16 @@ def handle_get_parents(params):
                 ORDER BY s.full_name"""
         )
     rows = cur.fetchall()
+    # Вкладка «Родители» всегда параллельно грузит список учеников класса (для выбора при
+    # добавлении родителя) — отдаём его тем же запросом, чтобы фронт не делал второй вызов.
+    if class_id and params.get("include_students"):
+        cur.execute(
+            f"SELECT s.*, c.name as class_name FROM {SCHEMA}.students s LEFT JOIN {SCHEMA}.classes c ON c.id = s.class_id WHERE s.class_id = %s AND s.is_archived = false ORDER BY s.full_name",
+            (class_id,)
+        )
+        students = list(cur.fetchall())
+        conn.close()
+        return ok({"items": list(rows), "students": students})
     conn.close()
     return ok(list(rows))
 
@@ -554,6 +564,16 @@ def handle_get_student_logins(params):
                 ORDER BY s.full_name"""
         )
     rows = cur.fetchall()
+    # Вкладка «Логины учеников» всегда параллельно грузит список учеников класса (для выбора
+    # при добавлении логина) — отдаём его тем же запросом, чтобы фронт не делал второй вызов.
+    if class_id and params.get("include_students"):
+        cur.execute(
+            f"SELECT s.*, c.name as class_name FROM {SCHEMA}.students s LEFT JOIN {SCHEMA}.classes c ON c.id = s.class_id WHERE s.class_id = %s AND s.is_archived = false ORDER BY s.full_name",
+            (class_id,)
+        )
+        students = list(cur.fetchall())
+        conn.close()
+        return ok({"items": list(rows), "students": students})
     conn.close()
     return ok(list(rows))
 
@@ -1251,6 +1271,17 @@ def handle_get_grades(params):
                 JOIN {SCHEMA}.students s ON s.id = g.student_id ORDER BY g.created_at DESC"""
         )
     rows = cur.fetchall()
+    # Учитель на вкладке «Оценки» всегда параллельно грузит список учеников класса —
+    # отдаём его тем же запросом (include_students=1), чтобы фронт не делал второй вызов
+    # к функции только ради справочника, который и так под рукой на backend.
+    if class_id and params.get("include_students"):
+        cur.execute(
+            f"SELECT s.*, c.name as class_name FROM {SCHEMA}.students s LEFT JOIN {SCHEMA}.classes c ON c.id = s.class_id WHERE s.class_id = %s AND s.is_archived = false ORDER BY s.full_name",
+            (class_id,)
+        )
+        students = list(cur.fetchall())
+        conn.close()
+        return ok({"items": list(rows), "students": students})
     conn.close()
     return ok(list(rows))
 
@@ -1300,6 +1331,16 @@ def handle_get_attendance(params):
     query += " ORDER BY a.lesson_date DESC, a.created_at DESC"
     cur.execute(query, tuple(args))
     rows = cur.fetchall()
+    # Учитель на вкладке «Посещаемость» всегда параллельно грузит список учеников класса —
+    # отдаём его тем же запросом (include_students=1), чтобы фронт не делал второй вызов.
+    if class_id and params.get("include_students"):
+        cur.execute(
+            f"SELECT s.*, c.name as class_name FROM {SCHEMA}.students s LEFT JOIN {SCHEMA}.classes c ON c.id = s.class_id WHERE s.class_id = %s AND s.is_archived = false ORDER BY s.full_name",
+            (class_id,)
+        )
+        students = list(cur.fetchall())
+        conn.close()
+        return ok({"items": list(rows), "students": students})
     conn.close()
     return ok(list(rows))
 
@@ -1395,6 +1436,16 @@ def handle_get_recommendations(params):
                 LEFT JOIN {SCHEMA}.users u ON u.id = r.teacher_id ORDER BY r.created_at DESC"""
         )
     rows = cur.fetchall()
+    # Учитель на вкладке «Рекомендации» всегда параллельно грузит список учеников класса —
+    # отдаём его тем же запросом (include_students=1), чтобы фронт не делал второй вызов.
+    if class_id and params.get("include_students"):
+        cur.execute(
+            f"SELECT s.*, c.name as class_name FROM {SCHEMA}.students s LEFT JOIN {SCHEMA}.classes c ON c.id = s.class_id WHERE s.class_id = %s AND s.is_archived = false ORDER BY s.full_name",
+            (class_id,)
+        )
+        students = list(cur.fetchall())
+        conn.close()
+        return ok({"items": list(rows), "students": students})
     conn.close()
     return ok(list(rows))
 
