@@ -145,6 +145,10 @@ def handler(event: dict, context) -> dict:
         return handle_get_grades(params)
     if action == "add_grade":
         return handle_add_grade(body)
+    if action == "update_grade":
+        return handle_update_grade(body)
+    if action == "delete_grade":
+        return handle_delete_grade(body)
     if action == "get_attendance":
         return handle_get_attendance(params)
     if action == "add_attendance":
@@ -1307,6 +1311,41 @@ def handle_add_grade(body):
     conn.commit()
     conn.close()
     return ok(dict(row), 201)
+
+
+def handle_update_grade(body):
+    """Изменяет ранее выставленную отметку (учитель может поправить ошибку)."""
+    grade_id = body.get("id")
+    if not grade_id:
+        return err("id required")
+    grade_max = body.get("grade_max")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"""UPDATE {SCHEMA}.grades
+            SET subject = %s, grade = %s, grade_max = %s, is_final = %s, comment = %s, grade_date = %s
+            WHERE id = %s RETURNING *""",
+        (body.get("subject"), body.get("grade"), grade_max, bool(body.get("is_final")),
+         body.get("comment", ""), body.get("grade_date"), grade_id)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return err("Отметка не найдена", 404)
+    return ok(dict(row))
+
+
+def handle_delete_grade(body):
+    grade_id = body.get("id")
+    if not grade_id:
+        return err("id required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"DELETE FROM {SCHEMA}.grades WHERE id = %s", (grade_id,))
+    conn.commit()
+    conn.close()
+    return ok({"ok": True})
 
 
 # ── Attendance ────────────────────────────────────────────

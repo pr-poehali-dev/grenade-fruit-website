@@ -43,6 +43,33 @@
       "bodyMatcher": "array_contains"
     },
     {
+      "name": "Update grade missing id",
+      "method": "POST",
+      "path": "/?action=update_grade",
+      "body": {"subject": "Математика", "grade": 5},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "id required"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Update grade not found",
+      "method": "POST",
+      "path": "/?action=update_grade",
+      "body": {"id": 999999, "subject": "Математика", "grade": 5, "grade_date": "1 января"},
+      "expectedStatus": 404,
+      "expectedBody": {"error": "Отметка не найдена"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Delete grade missing id",
+      "method": "POST",
+      "path": "/?action=delete_grade",
+      "body": {},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "id required"},
+      "bodyMatcher": "partial"
+    },
+    {
       "name": "Update email missing user_id",
       "method": "POST",
       "path": "/?action=update_email",

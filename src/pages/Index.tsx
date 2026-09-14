@@ -3378,6 +3378,7 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
+  const [editing, setEditing] = useState<Grade | null>(null);
   const [form, setForm] = useState({ student_id: "", subject: "", grade_type: "score" as "score" | "fraction", grade: "5", grade_max: "10", is_final: false, comment: "", grade_date: "" });
   const [saving, setSaving] = useState(false);
 
@@ -3416,22 +3417,49 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
     });
   }, []);
 
+  const emptyForm = { student_id: "", subject: "", grade_type: "score" as "score" | "fraction", grade: "5", grade_max: "10", is_final: false, comment: "", grade_date: "" };
+
+  const openAdd = () => { setEditing(null); setForm(emptyForm); setShowAdd(true); };
+
+  const openEdit = (g: Grade) => {
+    setEditing(g);
+    setForm({
+      student_id: String(g.student_id),
+      subject: g.subject,
+      grade_type: g.grade_max ? "fraction" : "score",
+      grade: String(g.grade),
+      grade_max: g.grade_max ? String(g.grade_max) : "10",
+      is_final: !!g.is_final,
+      comment: g.comment || "",
+      grade_date: g.grade_date,
+    });
+    setShowAdd(true);
+  };
+
   const save = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
-    await api("add_grade", "POST", {
-      student_id: form.student_id,
+    const payload = {
       subject: form.subject,
       grade: Number(form.grade),
       grade_max: form.grade_type === "fraction" ? Number(form.grade_max) : null,
       is_final: form.is_final,
       comment: form.comment,
       grade_date: form.grade_date,
-      teacher_id: user.id,
-      class_id: cls.id,
-    });
-    setSaving(false); setShowAdd(false);
-    setForm({ student_id: "", subject: "", grade_type: "score", grade: "5", grade_max: "10", is_final: false, comment: "", grade_date: "" });
+    };
+    if (editing) {
+      await api("update_grade", "POST", { ...payload, id: editing.id });
+    } else {
+      await api("add_grade", "POST", { ...payload, student_id: form.student_id, teacher_id: user.id, class_id: cls.id });
+    }
+    setSaving(false); setShowAdd(false); setEditing(null);
+    setForm(emptyForm);
+    load();
+  };
+
+  const remove = async (id: number) => {
+    if (!confirm("Удалить отметку?")) return;
+    await api("delete_grade", "POST", { id });
     load();
   };
 
@@ -3567,7 +3595,7 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
           <Icon name="BarChart3" size={13} /> Сводка за модуль
         </button>
       )}
-      {user.role === "teacher" && <AddBtn label="Поставить отметку" onClick={() => setShowAdd(true)} />}
+      {user.role === "teacher" && <AddBtn label="Поставить отметку" onClick={openAdd} />}
       {loading ? <Loader /> : (
         <div className="space-y-3">
           {grades.length === 0 && <Empty text="Отметок нет" />}
@@ -3587,6 +3615,12 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
                 <div className="text-xs" style={{ color: "#9B6A7A" }}>{g.grade_date}</div>
                 <div className="text-xs font-semibold" style={{ color: "#8B1A2F" }}>{gradeToPercent(g.grade, g.grade_max)}%</div>
               </div>
+              {user.role === "teacher" && (
+                <div className="flex gap-1 shrink-0">
+                  <button onClick={() => openEdit(g)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100"><Icon name="Pencil" size={13} style={{ color: "#8B1A2F" }} /></button>
+                  <button onClick={() => remove(g.id)} className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-red-50"><Icon name="Trash2" size={13} className="text-red-400" /></button>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -3594,10 +3628,10 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
       {user.role === "teacher" && (
         <>
           {showAdd && (
-            <Modal title="Новая отметка" onClose={() => setShowAdd(false)}>
+            <Modal title={editing ? "Изменить отметку" : "Новая отметка"} onClose={() => { setShowAdd(false); setEditing(null); }}>
               <form onSubmit={save} className="space-y-3">
                 <Field label="Ученик">
-                  <Select value={form.student_id} onChange={e => setForm(f => ({ ...f, student_id: e.target.value }))} required>
+                  <Select value={form.student_id} onChange={e => setForm(f => ({ ...f, student_id: e.target.value }))} required disabled={!!editing}>
                     <option value="">Выберите ученика</option>
                     {students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
                   </Select>
