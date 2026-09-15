@@ -102,6 +102,32 @@
       "bodyMatcher": "array_contains"
     },
     {
+      "name": "Get elective subjects",
+      "method": "GET",
+      "path": "/?action=get_elective_subjects",
+      "expectedStatus": 200,
+      "expectedBody": {"name": "STEM (факультатив)"},
+      "bodyMatcher": "array_contains"
+    },
+    {
+      "name": "Add elective subject missing name",
+      "method": "POST",
+      "path": "/?action=add_elective_subject",
+      "body": {},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "name required"},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Delete elective subject missing id",
+      "method": "POST",
+      "path": "/?action=delete_elective_subject",
+      "body": {},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "id required"},
+      "bodyMatcher": "partial"
+    },
+    {
       "name": "Get extended day students",
       "method": "GET",
       "path": "/?action=get_extended_day_students",

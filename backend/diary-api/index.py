@@ -183,6 +183,12 @@ def handler(event: dict, context) -> dict:
         return handle_remove_extended_day_student(body)
     if action == "update_extended_day_student_days":
         return handle_update_extended_day_student_days(body)
+    if action == "get_elective_subjects":
+        return handle_get_elective_subjects()
+    if action == "add_elective_subject":
+        return handle_add_elective_subject(body)
+    if action == "delete_elective_subject":
+        return handle_delete_elective_subject(body)
     if action == "get_elective_students":
         return handle_get_elective_students()
     if action == "add_elective_student":
@@ -1837,6 +1843,48 @@ def handle_get_elective_students():
     rows = cur.fetchall()
     conn.close()
     return ok([dict(r) for r in rows])
+
+
+def handle_get_elective_subjects():
+    """Справочник факультативов — общий для всех учителей, пополняется вручную."""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"SELECT id, name FROM {SCHEMA}.elective_subjects ORDER BY name")
+    rows = cur.fetchall()
+    conn.close()
+    return ok([dict(r) for r in rows])
+
+
+def handle_add_elective_subject(body):
+    """Добавляет новый факультатив в общий справочник (виден сразу всем учителям)."""
+    name = (body.get("name") or "").strip()
+    if not name:
+        return err("name required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"INSERT INTO {SCHEMA}.elective_subjects (name) VALUES (%s) ON CONFLICT (name) DO NOTHING RETURNING *",
+        (name,)
+    )
+    row = cur.fetchone()
+    conn.commit()
+    conn.close()
+    if not row:
+        return ok({"ok": True, "already_exists": True})
+    return ok(dict(row), 201)
+
+
+def handle_delete_elective_subject(body):
+    """Удаляет факультатив из справочника (сами записи учеников на него не трогает)."""
+    subject_id = body.get("id")
+    if not subject_id:
+        return err("id required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"DELETE FROM {SCHEMA}.elective_subjects WHERE id = %s", (subject_id,))
+    conn.commit()
+    conn.close()
+    return ok({"ok": True})
 
 
 VALID_ELECTIVE_LESSON_SLOTS = ("0", "5", "6", "7")

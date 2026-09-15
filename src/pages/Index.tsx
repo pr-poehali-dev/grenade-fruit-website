@@ -291,23 +291,24 @@ const DAY_ABBR: Record<string, string> = { "Понедельник": "Пн", "В
 const TEACHERS = ["Елена Сергеевна", "Александр Валерьевич", "Лариса Ивановна", "Олеся Александровна", "Ирина Олеговна", "Любовь Александровна", "Вадим Игоревич", "Артем Сергеевич", "Светлана Владимировна", "Мария Николаевна"];
 const NOTIF_EMOJI: Record<string, string> = { grade: "⭐", homework: "📚", recommendation: "💬", file: "📎", attendance: "🚸" };
 
-const ELECTIVE_SUBJECTS = ["Китайский язык (факультатив)", "STEM (факультатив)", "ОФП (факультатив)", "Шоу-лаборатория (факультатив)", "Занимательный русский язык (факультатив)", "Мышематика (факультатив)", "История архитектуры (факультатив)"];
+// Запасной список факультативов — используется, пока не загрузился справочник из БД
+// (или если загрузка не удалась). Актуальный список учителя пополняют сами через вкладку
+// «Факультативы» — он хранится в таблице elective_subjects и общий для всех учителей.
+const FALLBACK_ELECTIVE_SUBJECTS = ["Китайский язык (факультатив)", "STEM (факультатив)", "ОФП (факультатив)", "Шоу-лаборатория (факультатив)", "Занимательный русский язык (факультатив)", "Мышематика (факультатив)", "История архитектуры (факультатив)"];
 
-const SUBJECTS_BY_GRADE: Record<string, string[]> = {
-  "1-2": ["Математика", "Русский язык", "Английский язык", "Естествознание", "Урок осознанности", "Классный час", "ЖЗЛ", "ИЗО", "Нейротренинг", "Чтение по программе", "История искусств", "Чтение современной литературы", "Чистописание", ...ELECTIVE_SUBJECTS],
-  "3-4": ["Математика", "Русский язык", "Чтение", "Биология", "География", "Астрономия", "Физика", "История искусств", "Английский язык", "Классный час", "Урок осознанности", "ЖЗЛ", "Нейротренинг", ...ELECTIVE_SUBJECTS],
-  "5-6": ["Математика", "Русский язык", "Литература", "Английский язык", "История", "Биология", "География", "Геометрия", "Физика+химия", "Классный час", "Самопознание", "Проект", "Нейротренинг", ...ELECTIVE_SUBJECTS],
-  "7":   ["Алгебра", "Геометрия", "Русский язык", "Литература", "Английский язык", "История", "Биология", "География", "Химия", "Физика", "Классный час", "Проект", "Самопознание", ...ELECTIVE_SUBJECTS],
+const FIXED_SUBJECTS_BY_GRADE: Record<string, string[]> = {
+  "1-2": ["Математика", "Русский язык", "Английский язык", "Естествознание", "Урок осознанности", "Классный час", "ЖЗЛ", "ИЗО", "Нейротренинг", "Чтение по программе", "История искусств", "Чтение современной литературы", "Чистописание"],
+  "3-4": ["Математика", "Русский язык", "Чтение", "Биология", "География", "Астрономия", "Физика", "История искусств", "Английский язык", "Классный час", "Урок осознанности", "ЖЗЛ", "Нейротренинг"],
+  "5-6": ["Математика", "Русский язык", "Литература", "Английский язык", "История", "Биология", "География", "Геометрия", "Физика+химия", "Классный час", "Самопознание", "Проект", "Нейротренинг"],
+  "7":   ["Алгебра", "Геометрия", "Русский язык", "Литература", "Английский язык", "История", "Биология", "География", "Химия", "Физика", "Классный час", "Проект", "Самопознание"],
 };
 
-function getSubjectsByGrade(grade: number): string[] {
-  if (grade <= 2) return SUBJECTS_BY_GRADE["1-2"];
-  if (grade <= 4) return SUBJECTS_BY_GRADE["3-4"];
-  if (grade <= 6) return SUBJECTS_BY_GRADE["5-6"];
-  return SUBJECTS_BY_GRADE["7"];
+function getSubjectsByGrade(grade: number, electiveSubjects: string[]): string[] {
+  const key = grade <= 2 ? "1-2" : grade <= 4 ? "3-4" : grade <= 6 ? "5-6" : "7";
+  return [...FIXED_SUBJECTS_BY_GRADE[key], ...electiveSubjects];
 }
 
-const isElectiveSubject = (subject: string) => ELECTIVE_SUBJECTS.includes(subject);
+const isElectiveSubject = (subject: string, electiveSubjects: string[]) => electiveSubjects.includes(subject);
 
 // Соответствие номера урока факультатива (0/5/6/7) времени в расписании класса
 const LESSON_SLOT_TIME_MAP: Record<string, string> = { "0": "09:00–09:40", "5": "13:40–14:20", "6": "15:30–16:30", "7": "16:30–17:30" };
@@ -316,14 +317,15 @@ const timeSlotStart = (ts: string) => (ts || "").split(/[-–]/)[0].trim();
 
 // Скрывает из расписания факультативы, на которые ученик не записан вручную учителем —
 // с учётом конкретного дня недели и урока (0/5/6/7), на который он записан.
-// Обычные уроки не трогает — фильтрует только предметы из ELECTIVE_SUBJECTS.
+// Обычные уроки не трогает — фильтрует только предметы из справочника факультативов.
 function filterVisibleLessons<T extends { subject: string; time_slot: string; day_of_week: string }>(
   lessons: T[],
-  allowedElectives: Record<string, Record<string, string>> | null
+  allowedElectives: Record<string, Record<string, string>> | null,
+  electiveSubjects: string[]
 ): T[] {
   if (!allowedElectives) return lessons;
   return lessons.filter(l => {
-    if (!isElectiveSubject(l.subject)) return true;
+    if (!isElectiveSubject(l.subject, electiveSubjects)) return true;
     const daySlots = allowedElectives[l.subject];
     const slot = daySlots?.[l.day_of_week];
     if (!slot) return false;
@@ -583,6 +585,16 @@ export default function Index() {
       });
     }
   }, [user]);
+
+  // Справочник факультативов — общий для всех учителей, хранится в БД (таблица elective_subjects).
+  // Пока не загрузился (или пуст) — используем запасной список, чтобы расписание не оставалось пустым.
+  const [electiveSubjects, setElectiveSubjects] = useState<string[]>(FALLBACK_ELECTIVE_SUBJECTS);
+  const reloadElectiveSubjects = useCallback(() => {
+    api("get_elective_subjects").then(data => {
+      if (Array.isArray(data) && data.length > 0) setElectiveSubjects(data.map((s: { name: string }) => s.name));
+    });
+  }, []);
+  useEffect(() => { if (user) reloadElectiveSubjects(); }, [user, reloadElectiveSubjects]);
 
   // Раз в сутки — сводка по email родителям с новыми оценками/ДЗ
   useEffect(() => {
@@ -955,7 +967,7 @@ export default function Index() {
           ) : tab === "extended_day" && user.role === "teacher" ? (
             <ExtendedDayTab classes={classes} />
           ) : tab === "electives" && user.role === "teacher" ? (
-            <ElectivesTab classes={classes} />
+            <ElectivesTab classes={classes} electiveSubjects={electiveSubjects} onSubjectsChanged={reloadElectiveSubjects} />
           ) : !selectedClass ? (
             /* No class selected */
             <div className="flex flex-col items-center justify-center min-h-64 text-center">
@@ -1054,7 +1066,7 @@ export default function Index() {
 
               {/* Tab content */}
               <div key={`${selectedClass.id}-${tabKey}`} className="section-enter">
-                {tab === "schedule" && <ScheduleTab cls={selectedClass} user={user} />}
+                {tab === "schedule" && <ScheduleTab cls={selectedClass} user={user} electiveSubjects={electiveSubjects} />}
                 {tab === "homework" && <HomeworkTab cls={selectedClass} user={user} />}
                 {tab === "grades" && <GradesTab cls={selectedClass} user={user} />}
                 {tab === "attendance" && <AttendanceTab cls={selectedClass} user={user} />}
@@ -1118,7 +1130,7 @@ function getCurrentWeekDates(): { iso: string; dayName: string }[] {
 
 interface LessonSlot { time_slot: string; subject: string; teacher_name: string; room: string; }
 
-function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
+function ScheduleTab({ cls, user, electiveSubjects }: { cls: SchoolClass; user: User; electiveSubjects: string[] }) {
   const [view, setView] = useState<SchedView>("week");
   const [modules, setModules] = useState<Module[]>([]);
   const [selectedModule, setSelectedModule] = useState<Module | null>(null);
@@ -1300,7 +1312,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
         ? uniqueLessons
         : items.filter(i => i.day_of_week === day).sort((a, b) => a.sort_order - b.sort_order)
       ).map(l => ({ ...l, day_of_week: day }));
-      lessonsByDayOfWeek[day] = filterVisibleLessons(dayLessons, allowedElectives);
+      lessonsByDayOfWeek[day] = filterVisibleLessons(dayLessons, allowedElectives, electiveSubjects);
     });
 
     exportWeekTemplateToPdf({ displayName: cls.display_name || cls.name }, selectedModule?.name, lessonsByDayOfWeek);
@@ -1357,7 +1369,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
   };
 
   const getLessonsForDate = (date: string) =>
-    filterVisibleLessons(schedDates.filter(s => s.lesson_date === date), allowedElectives).sort((a, b) => a.sort_order - b.sort_order);
+    filterVisibleLessons(schedDates.filter(s => s.lesson_date === date), allowedElectives, electiveSubjects).sort((a, b) => a.sort_order - b.sort_order);
 
   const formatDate = (iso: string) => {
     const d = new Date(iso);
@@ -1617,7 +1629,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                     .sort((a, b) => a.sort_order - b.sort_order);
 
                   const rawLessonsToShow: (ScheduleDate | ScheduleItem)[] = dayLessons.length > 0 ? dayLessons : fallbackLessons;
-                  const lessonsToShow = filterVisibleLessons(rawLessonsToShow, allowedElectives);
+                  const lessonsToShow = filterVisibleLessons(rawLessonsToShow, allowedElectives, electiveSubjects);
                   const isFromTemplate = dayLessons.length === 0 && fallbackLessons.length > 0;
 
                   const dateLabel = new Date(iso).toLocaleDateString("ru-RU", { day: "numeric", month: "long" });
@@ -1923,7 +1935,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
             <Field label="Предмет">
               <Select value={dateLessonForm.subject} onChange={e => setDateLessonForm(f => ({ ...f, subject: e.target.value }))} required>
                 <option value="">— Выберите предмет —</option>
-                {getSubjectsByGrade(cls.grade).map(s => <option key={s} value={s}>{s}</option>)}
+                {getSubjectsByGrade(cls.grade, electiveSubjects).map(s => <option key={s} value={s}>{s}</option>)}
               </Select>
             </Field>
             <Field label="Учитель">
@@ -1975,7 +1987,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
               <Field label="Предмет">
                 <Select value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} required>
                   <option value="">— Выберите предмет —</option>
-                  {getSubjectsByGrade(cls.grade).map(s => <option key={s} value={s}>{s}</option>)}
+                  {getSubjectsByGrade(cls.grade, electiveSubjects).map(s => <option key={s} value={s}>{s}</option>)}
                 </Select>
               </Field>
               <Field label="Учитель">
@@ -2035,7 +2047,7 @@ function ScheduleTab({ cls, user }: { cls: SchoolClass; user: User }) {
                         <div className="flex gap-1">
                           <Select value={slot.subject} onChange={e => updateSlot(d, i, "subject", e.target.value)}>
                             <option value="">— Предмет —</option>
-                            {getSubjectsByGrade(cls.grade).map(s => <option key={s} value={s}>{s}</option>)}
+                            {getSubjectsByGrade(cls.grade, electiveSubjects).map(s => <option key={s} value={s}>{s}</option>)}
                           </Select>
                           <button type="button" onClick={() => removeSlot(d, i)} className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-red-50 shrink-0">
                             <Icon name="X" size={13} className="text-red-400" />
@@ -2654,7 +2666,7 @@ function getDaySlots(s: { days?: string[]; lesson_slot?: string; day_slots?: Rec
   const slot = s.lesson_slot || "5";
   return Object.fromEntries(days.map(d => [d, slot]));
 }
-function ElectivesTab({ classes }: { classes: SchoolClass[] }) {
+function ElectivesTab({ classes, electiveSubjects, onSubjectsChanged }: { classes: SchoolClass[]; electiveSubjects: string[]; onSubjectsChanged: () => void }) {
   const [students, setStudents] = useState<ElectiveStudent[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
@@ -2666,6 +2678,9 @@ function ElectivesTab({ classes }: { classes: SchoolClass[] }) {
   const [activeSubject, setActiveSubject] = useState<string | null>(null);
   const [pickerDaySlots, setPickerDaySlots] = useState<Record<string, string>>(() => Object.fromEntries(DAYS.map(d => [d, "5"])));
   const [savingSchedule, setSavingSchedule] = useState<number | null>(null);
+  const [showNewSubject, setShowNewSubject] = useState(false);
+  const [newSubjectName, setNewSubjectName] = useState("");
+  const [savingNewSubject, setSavingNewSubject] = useState(false);
 
   const sortedClasses = useMemo(() => [...classes].sort((a, b) => a.grade - b.grade), [classes]);
 
@@ -2745,6 +2760,20 @@ function ElectivesTab({ classes }: { classes: SchoolClass[] }) {
     if (!confirm("Убрать ученика с факультатива?")) return;
     await api("remove_elective_student", "POST", { student_id: studentId, subject });
     load();
+  };
+
+  // Новый факультатив сразу сохраняется в общий справочник (elective_subjects) — виден
+  // всем учителям, а не только тому, кто его создал.
+  const addSubject = async () => {
+    const name = newSubjectName.trim();
+    if (!name) return;
+    setSavingNewSubject(true);
+    await api("add_elective_subject", "POST", { name });
+    setSavingNewSubject(false);
+    setNewSubjectName("");
+    setShowNewSubject(false);
+    onSubjectsChanged();
+    setPickerSubject(name);
   };
 
   // value === "" — снять день у ученика (в этот день на факультатив не ходит)
@@ -2839,20 +2868,44 @@ function ElectivesTab({ classes }: { classes: SchoolClass[] }) {
         </div>
       )}
 
-      <AddBtn label="Записать ученика на факультатив" onClick={openAdd} />
+      <div className="flex gap-2 flex-wrap">
+        <AddBtn label="Записать ученика на факультатив" onClick={openAdd} />
+        <button onClick={() => { setShowNewSubject(true); setNewSubjectName(""); }}
+          className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-medium transition-all hover:opacity-80"
+          style={{ background: "white", color: "#8B1A2F", border: "1.5px solid rgba(139,26,47,0.2)" }}>
+          <Icon name="Plus" size={15} /> Новый факультатив
+        </button>
+      </div>
+
+      {showNewSubject && (
+        <Modal title="Новый факультатив" onClose={() => setShowNewSubject(false)}>
+          <form onSubmit={e => { e.preventDefault(); addSubject(); }} className="space-y-3">
+            <Field label="Название">
+              <Input value={newSubjectName} onChange={e => setNewSubjectName(e.target.value)} placeholder="Робототехника (факультатив)" required autoFocus />
+            </Field>
+            <p className="text-xs" style={{ color: "#9B6A7A" }}>Появится сразу у всех учителей — как в этом списке, так и в расписании класса.</p>
+            <SaveBtn loading={savingNewSubject} />
+          </form>
+        </Modal>
+      )}
 
       {showAdd && (
         <Modal title="Записать на факультатив" onClose={() => setShowAdd(false)}>
           {!pickerSubject ? (
             <div className="space-y-1">
               <p className="text-xs mb-2" style={{ color: "#9B6A7A" }}>Выберите факультатив</p>
-              {ELECTIVE_SUBJECTS.map(subject => (
+              {electiveSubjects.map(subject => (
                 <button key={subject} onClick={() => setPickerSubject(subject)}
                   className="w-full text-left px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-pink-50 transition-colors"
                   style={{ color: "#3D1520", border: "1.5px solid rgba(139,26,47,0.1)" }}>
                   {subject}
                 </button>
               ))}
+              <button onClick={() => { setShowAdd(false); setShowNewSubject(true); setNewSubjectName(""); }}
+                className="w-full text-left px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-pink-50 transition-colors flex items-center gap-1.5 mt-1"
+                style={{ color: "#8B1A2F", border: "1.5px dashed rgba(139,26,47,0.25)" }}>
+                <Icon name="Plus" size={14} /> Создать новый факультатив
+              </button>
             </div>
           ) : !pickerClassId ? (
             <div className="space-y-3">
