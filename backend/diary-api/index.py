@@ -8,7 +8,7 @@ import base64
 import uuid
 import psycopg2
 import boto3
-from psycopg2.extras import RealDictCursor
+from psycopg2.extras import RealDictCursor, execute_values
 
 SCHEMA = os.environ.get("MAIN_DB_SCHEMA", "public")
 S3_BUCKET = "files"
@@ -697,15 +697,23 @@ def handle_get_schedule(params):
 
 
 def resort_schedule_day(cur, class_id, day_of_week):
-    """Пересчитывает sort_order уроков дня по времени начала (time_slot), чтобы список всегда шёл по хронологии."""
+    """Пересчитывает sort_order уроков дня по времени начала (time_slot), чтобы список всегда шёл по хронологии.
+    Раньше делала по одному UPDATE на урок (N запросов на день расписания) — теперь один batch-запрос
+    через execute_values с CASE-сопоставлением id->sort_order, что в разы сокращает Billed Duration."""
     cur.execute(
         f"SELECT id, time_slot FROM {SCHEMA}.schedule WHERE class_id = %s AND day_of_week = %s AND active = true",
         (class_id, day_of_week)
     )
     rows = cur.fetchall()
+    if not rows:
+        return
     rows_sorted = sorted(rows, key=lambda r: r["time_slot"] or "")
-    for i, r in enumerate(rows_sorted):
-        cur.execute(f"UPDATE {SCHEMA}.schedule SET sort_order = %s WHERE id = %s", (i, r["id"]))
+    values = [(r["id"], i) for i, r in enumerate(rows_sorted)]
+    execute_values(
+        cur,
+        f"UPDATE {SCHEMA}.schedule AS s SET sort_order = v.sort_order FROM (VALUES %s) AS v(id, sort_order) WHERE s.id = v.id",
+        values
+    )
 
 
 def handle_add_schedule(body):
@@ -1154,41 +1162,48 @@ def handle_save_module_schedule(body):
             excluded.add(d.isoformat())
             d += datetime.timedelta(days=1)
 
-    inserted = 0
     current = date_start
     if isinstance(current, str):
         current = datetime.date.fromisoformat(current)
     if isinstance(date_end, str):
         date_end = datetime.date.fromisoformat(date_end)
 
+    # Обратное сопоставление weekday()->день недели, чтобы не гонять словарь day_map в цикле по датам
+    weekday_to_name = {num: name for name, num in day_map.items()}
+    # Уроки на день недели сортируем один раз заранее, а не при каждом попадании этого дня в модуле
+    sorted_weekly = {name: sorted(lessons, key=lambda l: l.get("time_slot") or "") for name, lessons in weekly.items()}
+
+    # Собираем все строки для вставки в Python-списке и пишем их одним batch-запросом (execute_values)
+    # вместо отдельного INSERT на каждый урок — при заполнении модуля на несколько недель вперёд
+    # это были сотни отдельных round-trip к БД за один вызов функции.
+    rows_to_insert = []
     while current <= date_end:
         weekday = current.weekday()
-        # Пропускаем выходные, праздники и каникулы
-        if current.isoformat() in excluded or weekday >= 5:
-            current += datetime.timedelta(days=1)
-            continue
-        day_name = None
-        for name, num in day_map.items():
-            if num == weekday:
-                day_name = name
-                break
-        if day_name and day_name in weekly:
-            lessons = sorted(weekly[day_name], key=lambda l: l.get("time_slot") or "")
-            for idx, lesson in enumerate(lessons):
-                cur.execute(
-                    f"""INSERT INTO {SCHEMA}.schedule_dates
-                        (class_id, module_id, lesson_date, day_of_week, time_slot, subject, teacher_name, room, sort_order)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                    (class_id, module_id, current.isoformat(), day_name,
-                     lesson.get("time_slot", ""), lesson.get("subject", ""),
-                     lesson.get("teacher_name", ""), lesson.get("room", ""), idx)
-                )
-                inserted += 1
+        if current.isoformat() not in excluded and weekday < 5:
+            day_name = weekday_to_name.get(weekday)
+            lessons = sorted_weekly.get(day_name) if day_name else None
+            if lessons:
+                current_iso = current.isoformat()
+                for idx, lesson in enumerate(lessons):
+                    rows_to_insert.append((
+                        class_id, module_id, current_iso, day_name,
+                        lesson.get("time_slot", ""), lesson.get("subject", ""),
+                        lesson.get("teacher_name", ""), lesson.get("room", ""), idx
+                    ))
         current += datetime.timedelta(days=1)
+
+    if rows_to_insert:
+        execute_values(
+            cur,
+            f"""INSERT INTO {SCHEMA}.schedule_dates
+                (class_id, module_id, lesson_date, day_of_week, time_slot, subject, teacher_name, room, sort_order)
+                VALUES %s""",
+            rows_to_insert
+        )
 
     conn.commit()
     conn.close()
-    return ok({"ok": True, "inserted": inserted})
+    return ok({"ok": True, "inserted": len(rows_to_insert)})
 
 
 # ── Homework ──────────────────────────────────────────────
@@ -1276,9 +1291,10 @@ def handle_get_grades(params):
             (class_id,)
         )
     else:
+        # Без фильтра по ученику/классу — подстраховка от случайной тяжёлой выборки всей таблицы
         cur.execute(
             f"""SELECT g.*, s.full_name as student_name FROM {SCHEMA}.grades g
-                JOIN {SCHEMA}.students s ON s.id = g.student_id ORDER BY g.created_at DESC"""
+                JOIN {SCHEMA}.students s ON s.id = g.student_id ORDER BY g.created_at DESC LIMIT 200"""
         )
     rows = cur.fetchall()
     # Учитель на вкладке «Оценки» всегда параллельно грузит список учеников класса —
@@ -1474,11 +1490,12 @@ def handle_get_recommendations(params):
             (class_id,)
         )
     else:
+        # Без фильтра по ученику/классу — подстраховка от случайной тяжёлой выборки всей таблицы
         cur.execute(
             f"""SELECT r.*, s.full_name as student_name, u.display_name as teacher_name
                 FROM {SCHEMA}.recommendations r
                 JOIN {SCHEMA}.students s ON s.id = r.student_id
-                LEFT JOIN {SCHEMA}.users u ON u.id = r.teacher_id ORDER BY r.created_at DESC"""
+                LEFT JOIN {SCHEMA}.users u ON u.id = r.teacher_id ORDER BY r.created_at DESC LIMIT 200"""
         )
     rows = cur.fetchall()
     # Учитель на вкладке «Рекомендации» всегда параллельно грузит список учеников класса —

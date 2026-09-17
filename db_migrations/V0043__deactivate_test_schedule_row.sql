@@ -1,0 +1,1 @@
+UPDATE schedule SET active = false WHERE id = 39 AND subject = 'Тест оптимизации';
