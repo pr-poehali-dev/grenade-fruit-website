@@ -151,6 +151,18 @@ function closestYearIso(day: number, month: number, refDate: Date): string | nul
 function localIsoDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
+// Оценки и ДЗ исторически хранят дату русским текстом без года ("13 мая") — эти функции
+// позволяют использовать удобный <input type="date"> в форме, не меняя формат хранения в БД.
+const RU_MONTHS_SHORT = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября", "декабря"];
+function isoToRuDateText(iso: string): string {
+  const [, m, d] = iso.split("-").map(Number);
+  return `${d} ${RU_MONTHS_SHORT[m - 1]}`;
+}
+// Обратное преобразование — чтобы при редактировании существующей записи date-picker показал
+// корректно выбранный день, а не пустое поле (ru-текст сам по себе не понятен <input type="date">)
+function ruDateTextToIso(text: string, refDate: Date = new Date()): string {
+  return parseRuDateGuessYear(text, refDate) || localIsoDate(refDate);
+}
 // Ключ для группировки отметок/записей по предмету, устойчивый к лишним пробелам и разнице
 // в регистре ("Математика", " математика ", "МАТЕМАТИКА" — один и тот же предмет)
 function subjectKey(subject: string): string {
@@ -1067,9 +1079,9 @@ export default function Index() {
               {/* Tab content */}
               <div key={`${selectedClass.id}-${tabKey}`} className="section-enter">
                 {tab === "schedule" && <ScheduleTab cls={selectedClass} user={user} electiveSubjects={electiveSubjects} />}
-                {tab === "homework" && <HomeworkTab cls={selectedClass} user={user} />}
-                {tab === "grades" && <GradesTab cls={selectedClass} user={user} />}
-                {tab === "attendance" && <AttendanceTab cls={selectedClass} user={user} />}
+                {tab === "homework" && <HomeworkTab cls={selectedClass} user={user} electiveSubjects={electiveSubjects} />}
+                {tab === "grades" && <GradesTab cls={selectedClass} user={user} electiveSubjects={electiveSubjects} />}
+                {tab === "attendance" && <AttendanceTab cls={selectedClass} user={user} electiveSubjects={electiveSubjects} />}
                 {tab === "recommendations" && <RecsTab cls={selectedClass} user={user} />}
                 {tab === "chat" && user.role !== "student" && <ChatTab cls={selectedClass} user={user} />}
                 {tab === "archive" && <ArchiveTab cls={selectedClass} />}
@@ -3072,12 +3084,13 @@ function StudentsTab({ cls }: { cls: SchoolClass }) {
 }
 
 // ─── Homework Tab ──────────────────────────────────────────
-function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
+function HomeworkTab({ cls, user, electiveSubjects }: { cls: SchoolClass; user: User; electiveSubjects: string[] }) {
   const [items, setItems] = useState<Homework[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Homework | null>(null);
   const [form, setForm] = useState({ subject: "", task: "", due_date: "" });
+  const [dueDateIso, setDueDateIso] = useState(localIsoDate(new Date()));
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [linkInput, setLinkInput] = useState("");
   const [saving, setSaving] = useState(false);
@@ -3101,8 +3114,19 @@ function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
     return () => clearInterval(interval);
   }, []);
 
-  const openAdd = () => { setEditing(null); setForm({ subject: "", task: "", due_date: "" }); setAttachments([]); setLinkInput(""); setShowAdd(true); };
-  const openEdit = (hw: Homework) => { setEditing(hw); setForm({ subject: hw.subject, task: hw.task, due_date: hw.due_date }); setAttachments(hw.attachments || []); setLinkInput(""); setShowAdd(true); };
+  const openAdd = () => {
+    setEditing(null);
+    const todayIso = localIsoDate(new Date());
+    setForm({ subject: "", task: "", due_date: isoToRuDateText(todayIso) });
+    setDueDateIso(todayIso);
+    setAttachments([]); setLinkInput(""); setShowAdd(true);
+  };
+  const openEdit = (hw: Homework) => {
+    setEditing(hw);
+    setForm({ subject: hw.subject, task: hw.task, due_date: hw.due_date });
+    setDueDateIso(ruDateTextToIso(hw.due_date));
+    setAttachments(hw.attachments || []); setLinkInput(""); setShowAdd(true);
+  };
 
   const addLink = () => {
     const url = linkInput.trim();
@@ -3169,9 +3193,16 @@ function HomeworkTab({ cls, user }: { cls: SchoolClass; user: User }) {
       {showAdd && (
         <Modal title={editing ? "Редактировать ДЗ" : "Новое задание · весь класс"} onClose={() => setShowAdd(false)}>
           <form onSubmit={save} className="space-y-3">
-            <Field label="Предмет"><Input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="Математика" required /></Field>
+            <Field label="Предмет">
+              <Select value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} required>
+                <option value="">— Выберите предмет —</option>
+                {getSubjectsByGrade(cls.grade, electiveSubjects).map(s => <option key={s} value={s}>{s}</option>)}
+              </Select>
+            </Field>
             <Field label="Задание"><Textarea rows={4} value={form.task} onChange={e => setForm(f => ({ ...f, task: e.target.value }))} placeholder="Опишите задание..." required /></Field>
-            <Field label="Срок сдачи"><Input value={form.due_date} onChange={e => setForm(f => ({ ...f, due_date: e.target.value }))} placeholder="14 мая" required /></Field>
+            <Field label="Срок сдачи">
+              <Input type="date" value={dueDateIso} onChange={e => { setDueDateIso(e.target.value); setForm(f => ({ ...f, due_date: isoToRuDateText(e.target.value) })); }} required />
+            </Field>
 
             <Field label="Ссылка">
               <div className="flex gap-2">
@@ -3426,13 +3457,14 @@ function parseRuDateInModule(dateStr: string, mod: Module): string | null {
 }
 
 // ─── Grades Tab ────────────────────────────────────────────
-function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
+function GradesTab({ cls, user, electiveSubjects }: { cls: SchoolClass; user: User; electiveSubjects: string[] }) {
   const [grades, setGrades] = useState<Grade[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAdd, setShowAdd] = useState(false);
   const [editing, setEditing] = useState<Grade | null>(null);
   const [form, setForm] = useState({ student_id: "", subject: "", grade_type: "score" as "score" | "fraction", grade: "5", grade_max: "10", is_final: false, comment: "", grade_date: "" });
+  const [gradeDateIso, setGradeDateIso] = useState(localIsoDate(new Date()));
   const [saving, setSaving] = useState(false);
 
   // Модули (учебные периоды) для сводки
@@ -3472,7 +3504,13 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
 
   const emptyForm = { student_id: "", subject: "", grade_type: "score" as "score" | "fraction", grade: "5", grade_max: "10", is_final: false, comment: "", grade_date: "" };
 
-  const openAdd = () => { setEditing(null); setForm(emptyForm); setShowAdd(true); };
+  const openAdd = () => {
+    setEditing(null);
+    const todayIso = localIsoDate(new Date());
+    setForm({ ...emptyForm, grade_date: isoToRuDateText(todayIso) });
+    setGradeDateIso(todayIso);
+    setShowAdd(true);
+  };
 
   const openEdit = (g: Grade) => {
     setEditing(g);
@@ -3486,6 +3524,7 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
       comment: g.comment || "",
       grade_date: g.grade_date,
     });
+    setGradeDateIso(ruDateTextToIso(g.grade_date));
     setShowAdd(true);
   };
 
@@ -3689,7 +3728,12 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
                     {students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
                   </Select>
                 </Field>
-                <Field label="Предмет"><Input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="Математика" required /></Field>
+                <Field label="Предмет">
+                  <Select value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} required>
+                    <option value="">— Выберите предмет —</option>
+                    {getSubjectsByGrade(cls.grade, electiveSubjects).map(s => <option key={s} value={s}>{s}</option>)}
+                  </Select>
+                </Field>
                 <Field label="Формат отметки">
                   <div className="flex rounded-xl p-1" style={{ background: "#F5E0E5" }}>
                     {([["score", "Балл"], ["fraction", "Соотношение"]] as const).map(([val, label]) => (
@@ -3722,7 +3766,9 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
                   Итоговая отметка за модуль
                 </label>
                 <Field label="Комментарий"><Input value={form.comment} onChange={e => setForm(f => ({ ...f, comment: e.target.value }))} placeholder="Необязательно" /></Field>
-                <Field label="Дата"><Input value={form.grade_date} onChange={e => setForm(f => ({ ...f, grade_date: e.target.value }))} placeholder="13 мая" required /></Field>
+                <Field label="Дата">
+                  <Input type="date" value={gradeDateIso} onChange={e => { setGradeDateIso(e.target.value); setForm(f => ({ ...f, grade_date: isoToRuDateText(e.target.value) })); }} required />
+                </Field>
                 <SaveBtn loading={saving} />
               </form>
             </Modal>
@@ -3876,7 +3922,7 @@ function GradesTab({ cls, user }: { cls: SchoolClass; user: User }) {
 }
 
 // ─── Attendance Tab ────────────────────────────────────────
-function AttendanceTab({ cls, user }: { cls: SchoolClass; user: User }) {
+function AttendanceTab({ cls, user, electiveSubjects }: { cls: SchoolClass; user: User; electiveSubjects: string[] }) {
   const [records, setRecords] = useState<Attendance[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
@@ -4048,7 +4094,12 @@ function AttendanceTab({ cls, user }: { cls: SchoolClass; user: User }) {
                     {students.map(s => <option key={s.id} value={s.id}>{s.full_name}</option>)}
                   </Select>
                 </Field>
-                <Field label="Предмет"><Input value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} placeholder="Математика" required /></Field>
+                <Field label="Предмет">
+                  <Select value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} required>
+                    <option value="">— Выберите предмет —</option>
+                    {getSubjectsByGrade(cls.grade, electiveSubjects).map(s => <option key={s} value={s}>{s}</option>)}
+                  </Select>
+                </Field>
                 <Field label="Тип">
                   <Select value={form.status} onChange={e => setForm(f => ({ ...f, status: e.target.value }))}>
                     <option value="absent">Отсутствие</option>
