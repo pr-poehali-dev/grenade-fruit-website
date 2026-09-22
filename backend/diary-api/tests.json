@@ -102,6 +102,13 @@
       "bodyMatcher": "array_contains"
     },
     {
+      "name": "Get schedule_dates by date range",
+      "method": "GET",
+      "path": "/?action=get_schedule_dates&class_id=14&lesson_date_from=2026-09-01&lesson_date_to=2026-09-30",
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    },
+    {
       "name": "Get elective subjects",
       "method": "GET",
       "path": "/?action=get_elective_subjects",

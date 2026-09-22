@@ -1007,6 +1007,8 @@ def handle_get_schedule_dates(params):
     class_id = params.get("class_id")
     module_id = params.get("module_id")
     lesson_date = params.get("lesson_date")
+    lesson_date_from = params.get("lesson_date_from")
+    lesson_date_to = params.get("lesson_date_to")
     teacher_name = params.get("teacher_name")
     school_year = params.get("school_year")
     conn = get_conn()
@@ -1020,6 +1022,15 @@ def handle_get_schedule_dates(params):
                   AND (c.is_active IS NULL OR c.is_active = true) AND sd.sort_order >= 0
                 ORDER BY sd.lesson_date, sd.sort_order""",
             (teacher_name, school_year or "2026-2027")
+        )
+    elif lesson_date_from and lesson_date_to and class_id:
+        # Диапазон дат (например вся текущая неделя) — один запрос вместо N по одному на день,
+        # чтобы фронт не открывал сразу несколько параллельных HTTP-вызовов при загрузке расписания.
+        cur.execute(
+            f"""SELECT * FROM {SCHEMA}.schedule_dates
+                WHERE class_id = %s AND lesson_date >= %s AND lesson_date <= %s AND sort_order >= 0
+                ORDER BY lesson_date, sort_order""",
+            (class_id, lesson_date_from, lesson_date_to)
         )
     elif lesson_date:
         cur.execute(

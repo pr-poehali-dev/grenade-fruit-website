@@ -1234,17 +1234,17 @@ function ScheduleTab({ cls, user, electiveSubjects }: { cls: SchoolClass; user: 
   const [weekSchedDates, setWeekSchedDates] = useState<ScheduleDate[]>([]);
   const [loadingWeekDates, setLoadingWeekDates] = useState(false);
 
+  // Раньше грузили расписание недели 5 параллельными запросами (по одному на день) — теперь
+  // один запрос с диапазоном дат (backend сам фильтрует WHERE lesson_date BETWEEN ... AND ...),
+  // это в 5 раз меньше вызовов функции при каждом открытии вкладки «Расписание».
   const loadWeekDates = useCallback(async () => {
     setLoadingWeekDates(true);
-    const [d1, d2, d3, d4, d5] = weekIsos;
-    const results = await Promise.all(
-      [d1, d2, d3, d4, d5].filter(Boolean).map(date =>
-        api(`get_schedule_dates&class_id=${cls.id}&lesson_date=${date}`)
-      )
-    );
-    const all: ScheduleDate[] = [];
-    results.forEach(r => { if (Array.isArray(r)) all.push(...r); });
-    setWeekSchedDates(all);
+    const from = weekIsos[0];
+    const to = weekIsos[weekIsos.length - 1];
+    const data = from && to
+      ? await api(`get_schedule_dates&class_id=${cls.id}&lesson_date_from=${from}&lesson_date_to=${to}`)
+      : [];
+    setWeekSchedDates(Array.isArray(data) ? data : []);
     setLoadingWeekDates(false);
   }, [cls.id, weekIsos]);
 
