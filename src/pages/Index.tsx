@@ -608,6 +608,17 @@ export default function Index() {
   }, []);
   useEffect(() => { if (user) reloadElectiveSubjects(); }, [user, reloadElectiveSubjects]);
 
+  // Модули (учебные периоды) — статичный на весь год справочник, который раньше отдельно
+  // грузили заново ScheduleTab, GradesTab и AttendanceTab при каждом открытии своей вкладки.
+  // Теперь грузится один раз здесь и передаётся пропсом — минус 2-3 лишних вызова на класс.
+  const [modules, setModules] = useState<Module[]>([]);
+  const reloadModules = useCallback(async () => {
+    const data = await api("get_modules");
+    if (Array.isArray(data)) setModules(data);
+    return Array.isArray(data) ? data : [];
+  }, []);
+  useEffect(() => { if (user) reloadModules(); }, [user, reloadModules]);
+
   // Раз в сутки — сводка по email родителям с новыми оценками/ДЗ
   useEffect(() => {
     if (!user) return;
@@ -1072,10 +1083,10 @@ export default function Index() {
 
               {/* Tab content */}
               <div key={`${selectedClass.id}-${tabKey}`} className="section-enter">
-                {tab === "schedule" && <ScheduleTab cls={selectedClass} user={user} electiveSubjects={electiveSubjects} />}
+                {tab === "schedule" && <ScheduleTab cls={selectedClass} user={user} electiveSubjects={electiveSubjects} modules={modules} reloadModules={reloadModules} />}
                 {tab === "homework" && <HomeworkTab cls={selectedClass} user={user} electiveSubjects={electiveSubjects} />}
-                {tab === "grades" && <GradesTab cls={selectedClass} user={user} electiveSubjects={electiveSubjects} />}
-                {tab === "attendance" && <AttendanceTab cls={selectedClass} user={user} electiveSubjects={electiveSubjects} />}
+                {tab === "grades" && <GradesTab cls={selectedClass} user={user} electiveSubjects={electiveSubjects} modules={modules} />}
+                {tab === "attendance" && <AttendanceTab cls={selectedClass} user={user} electiveSubjects={electiveSubjects} modules={modules} />}
                 {tab === "recommendations" && <RecsTab cls={selectedClass} user={user} />}
                 {tab === "chat" && user.role !== "student" && <ChatTab cls={selectedClass} user={user} />}
                 {tab === "archive" && <ArchiveTab cls={selectedClass} />}
@@ -1136,9 +1147,8 @@ function getCurrentWeekDates(): { iso: string; dayName: string }[] {
 
 interface LessonSlot { time_slot: string; subject: string; teacher_name: string; room: string; }
 
-function ScheduleTab({ cls, user, electiveSubjects }: { cls: SchoolClass; user: User; electiveSubjects: string[] }) {
+function ScheduleTab({ cls, user, electiveSubjects, modules, reloadModules }: { cls: SchoolClass; user: User; electiveSubjects: string[]; modules: Module[]; reloadModules: () => Promise<Module[]> }) {
   const [view, setView] = useState<SchedView>("week");
-  const [modules, setModules] = useState<Module[]>([]);
   const [selectedModule, setSelectedModule] = useState<Module | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
@@ -1208,18 +1218,16 @@ function ScheduleTab({ cls, user, electiveSubjects }: { cls: SchoolClass; user: 
   }, []);
   const subjectsWithHomework = useMemo(() => new Set(homeworks.map(hw => (hw.subject || "").trim())), [homeworks]);
 
-  // Load modules once
+  useEffect(() => { loadWeek(); }, [loadWeek]);
+
+  // Модули приходят готовым пропсом из главного компонента (справочник статичен на весь год,
+  // грузится один раз там вместо повторной загрузки в каждой вкладке)
   useEffect(() => {
-    api("get_modules").then(data => {
-      if (Array.isArray(data)) {
-        setModules(data);
-        const todayIso = new Date().toISOString().split("T")[0];
-        const current = data.find((m: Module) => todayIso >= m.date_start && todayIso <= m.date_end);
-        setSelectedModule(current || data[0] || null);
-      }
-    });
-    loadWeek();
-  }, [loadWeek]);
+    if (modules.length === 0) return;
+    const todayIso = new Date().toISOString().split("T")[0];
+    const current = modules.find(m => todayIso >= m.date_start && todayIso <= m.date_end);
+    setSelectedModule(current || modules[0] || null);
+  }, [modules]);
 
   // Даты текущей недели (пн-пт) для загрузки расписания
   const weekIsos = useMemo(() => getCurrentWeekDates().map(d => d.iso), []);
@@ -1495,12 +1503,9 @@ function ScheduleTab({ cls, user, electiveSubjects }: { cls: SchoolClass; user: 
     for (const m of editingModules) {
       await api("update_module", "POST", { id: m.id, name: m.name, date_start: m.date_start, date_end: m.date_end });
     }
-    const updated = await api("get_modules");
-    if (Array.isArray(updated)) {
-      setModules(updated);
-      const cur = updated.find((m: Module) => m.id === selectedModule?.id);
-      if (cur) setSelectedModule(cur);
-    }
+    const updated = await reloadModules();
+    const cur = updated.find(m => m.id === selectedModule?.id);
+    if (cur) setSelectedModule(cur);
     setSavingModuleEdit(false);
     setShowModuleEditor(false);
   };
@@ -3450,7 +3455,7 @@ function parseRuDateInModule(dateStr: string, mod: Module): string | null {
 }
 
 // ─── Grades Tab ────────────────────────────────────────────
-function GradesTab({ cls, user, electiveSubjects }: { cls: SchoolClass; user: User; electiveSubjects: string[] }) {
+function GradesTab({ cls, user, electiveSubjects, modules }: { cls: SchoolClass; user: User; electiveSubjects: string[]; modules: Module[] }) {
   const [grades, setGrades] = useState<Grade[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
@@ -3460,8 +3465,8 @@ function GradesTab({ cls, user, electiveSubjects }: { cls: SchoolClass; user: Us
   const [gradeDateIso, setGradeDateIso] = useState(localIsoDate(new Date()));
   const [saving, setSaving] = useState(false);
 
-  // Модули (учебные периоды) для сводки
-  const [modules, setModules] = useState<Module[]>([]);
+  // Модули (учебные периоды) для сводки — приходят готовыми пропсом из главного компонента
+  // (справочник статичен на весь год, раньше грузили заново при каждом открытии вкладки)
   const [selectedModule, setSelectedModule] = useState<Module | null>(null);
   const [showSummary, setShowSummary] = useState(false);
   const [exportStudentId, setExportStudentId] = useState("");
@@ -3485,15 +3490,11 @@ function GradesTab({ cls, user, electiveSubjects }: { cls: SchoolClass; user: Us
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    api("get_modules").then(data => {
-      if (Array.isArray(data)) {
-        setModules(data);
-        const todayIso = new Date().toISOString().split("T")[0];
-        const current = data.find((m: Module) => todayIso >= m.date_start && todayIso <= m.date_end);
-        setSelectedModule(current || data[0] || null);
-      }
-    });
-  }, []);
+    if (modules.length === 0) return;
+    const todayIso = new Date().toISOString().split("T")[0];
+    const current = modules.find(m => todayIso >= m.date_start && todayIso <= m.date_end);
+    setSelectedModule(current || modules[0] || null);
+  }, [modules]);
 
   const emptyForm = { student_id: "", subject: "", grade_type: "score" as "score" | "fraction", grade: "5", grade_max: "10", is_final: false, comment: "", grade_date: "" };
 
@@ -3915,7 +3916,7 @@ function GradesTab({ cls, user, electiveSubjects }: { cls: SchoolClass; user: Us
 }
 
 // ─── Attendance Tab ────────────────────────────────────────
-function AttendanceTab({ cls, user, electiveSubjects }: { cls: SchoolClass; user: User; electiveSubjects: string[] }) {
+function AttendanceTab({ cls, user, electiveSubjects, modules }: { cls: SchoolClass; user: User; electiveSubjects: string[]; modules: Module[] }) {
   const [records, setRecords] = useState<Attendance[]>([]);
   const [students, setStudents] = useState<Student[]>([]);
   const [loading, setLoading] = useState(true);
@@ -3924,8 +3925,7 @@ function AttendanceTab({ cls, user, electiveSubjects }: { cls: SchoolClass; user
   const [form, setForm] = useState({ student_id: "", subject: "", status: "absent", comment: "", lesson_date: "" });
   const [saving, setSaving] = useState(false);
 
-  // Модули (учебные периоды) для сводки
-  const [modules, setModules] = useState<Module[]>([]);
+  // Модули (учебные периоды) для сводки — приходят готовыми пропсом из главного компонента
   const [selectedModule, setSelectedModule] = useState<Module | null>(null);
   const [showSummary, setShowSummary] = useState(false);
 
@@ -3948,15 +3948,11 @@ function AttendanceTab({ cls, user, electiveSubjects }: { cls: SchoolClass; user
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
-    api("get_modules").then(data => {
-      if (Array.isArray(data)) {
-        setModules(data);
-        const todayIso = new Date().toISOString().split("T")[0];
-        const current = data.find((m: Module) => todayIso >= m.date_start && todayIso <= m.date_end);
-        setSelectedModule(current || data[0] || null);
-      }
-    });
-  }, []);
+    if (modules.length === 0) return;
+    const todayIso = new Date().toISOString().split("T")[0];
+    const current = modules.find(m => todayIso >= m.date_start && todayIso <= m.date_end);
+    setSelectedModule(current || modules[0] || null);
+  }, [modules]);
 
   const moduleRecords = selectedModule
     ? records.filter(r => r.lesson_date >= selectedModule.date_start && r.lesson_date <= selectedModule.date_end)
