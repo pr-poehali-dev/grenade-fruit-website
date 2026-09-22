@@ -27,6 +27,20 @@
       "bodyMatcher": "partial"
     },
     {
+      "name": "Get calendar extras",
+      "method": "GET",
+      "path": "/?action=get_calendar_extras&class_id=14",
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get parent dashboard",
+      "method": "GET",
+      "path": "/?action=get_parent_dashboard&parent_id=4",
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    },
+    {
       "name": "Get classes",
       "method": "GET",
       "path": "/?action=get_classes",

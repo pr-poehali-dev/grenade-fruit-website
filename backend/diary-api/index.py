@@ -79,6 +79,8 @@ def handler(event: dict, context) -> dict:
         return handle_update_parent(body)
     if action == "get_linked_accounts":
         return handle_get_linked_accounts(params)
+    if action == "get_parent_dashboard":
+        return handle_get_parent_dashboard(params)
     if action == "switch_account":
         return handle_switch_account(body)
     if action == "get_student_logins":
@@ -93,6 +95,8 @@ def handler(event: dict, context) -> dict:
         return handle_get_modules()
     if action == "update_module":
         return handle_update_module(body)
+    if action == "get_calendar_extras":
+        return handle_get_calendar_extras(params)
     if action == "get_trips":
         return handle_get_trips(params)
     if action == "add_trip":
@@ -870,6 +874,30 @@ def handle_delete_trip(body):
     return ok({"ok": True})
 
 
+# ── Calendar extras (каникулы + праздники + поездки одним запросом) ──
+def handle_get_calendar_extras(params):
+    """Отдаёт breaks+holidays+trips за один вызов вместо трёх отдельных — фронт запрашивает
+    их всегда вместе при открытии расписания класса (для подсветки календаря)."""
+    class_id = params.get("class_id")
+    year = params.get("school_year", "2026-2027")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(f"SELECT * FROM {SCHEMA}.breaks WHERE school_year = %s ORDER BY date_start", (year,))
+    breaks = list(cur.fetchall())
+    cur.execute(f"SELECT * FROM {SCHEMA}.holidays WHERE school_year = %s ORDER BY holiday_date", (year,))
+    holidays = list(cur.fetchall())
+    if class_id:
+        cur.execute(
+            f"SELECT * FROM {SCHEMA}.trips WHERE class_id = %s AND school_year = %s ORDER BY trip_date",
+            (class_id, year)
+        )
+    else:
+        cur.execute(f"SELECT * FROM {SCHEMA}.trips WHERE school_year = %s ORDER BY trip_date", (year,))
+    trips = list(cur.fetchall())
+    conn.close()
+    return ok({"breaks": breaks, "holidays": holidays, "trips": trips})
+
+
 # ── Breaks (каникулы) ─────────────────────────────────────
 def handle_get_breaks(params):
     year = params.get("school_year", "2026-2027")
@@ -1619,6 +1647,41 @@ def handle_get_notifications(params):
     rows = cur.fetchall()
     conn.close()
     return ok(list(rows))
+
+
+def handle_get_parent_dashboard(params):
+    """Уведомления + связанные аккаунты (другие дети того же родителя) одним запросом —
+    оба всегда грузятся вместе сразу после логина родителя, раньше это было 2 отдельных вызова."""
+    parent_id = params.get("parent_id")
+    if not parent_id:
+        return err("parent_id required")
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        f"SELECT * FROM {SCHEMA}.notifications WHERE parent_id = %s ORDER BY created_at DESC LIMIT 20",
+        (parent_id,)
+    )
+    notifications = list(cur.fetchall())
+
+    cur.execute(f"SELECT display_name FROM {SCHEMA}.users WHERE id = %s AND role = 'parent'", (parent_id,))
+    me = cur.fetchone()
+    linked_accounts = []
+    if me:
+        my_key = _normalize_name(me["display_name"])
+        cur.execute(
+            f"""SELECT u.id as parent_id, u.display_name, s.full_name as child, s.id as child_id, s.class_id
+                FROM {SCHEMA}.users u
+                JOIN {SCHEMA}.parent_students ps ON ps.parent_id = u.id
+                JOIN {SCHEMA}.students s ON s.id = ps.student_id
+                WHERE u.role = 'parent' AND u.is_archived = false AND s.is_archived = false AND u.id != %s
+                ORDER BY s.full_name""",
+            (parent_id,)
+        )
+        linked_accounts = [dict(r) for r in cur.fetchall() if _normalize_name(r["display_name"]) == my_key]
+        for r in linked_accounts:
+            r.pop("display_name", None)
+    conn.close()
+    return ok({"notifications": notifications, "linked_accounts": linked_accounts})
 
 
 def handle_mark_read(body):

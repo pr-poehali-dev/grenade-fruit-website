@@ -618,19 +618,13 @@ export default function Index() {
     api("run_daily_digest", "POST", {});
   }, [user]);
 
+  // Уведомления + другие дети того же родителя (для переключения одной кнопкой) — раньше
+  // это были 2 отдельных параллельных запроса сразу после логина, теперь один вызов.
   useEffect(() => {
     if (user?.role === "parent" && user.id) {
-      api(`get_notifications&parent_id=${user.id}`).then(data => {
-        if (Array.isArray(data)) setNotifs(data);
-      });
-    }
-  }, [user]);
-
-  // Другие дети того же родителя (аккаунты с одинаковым ФИО) — для переключения одной кнопкой
-  useEffect(() => {
-    if (user?.role === "parent" && user.id) {
-      api(`get_linked_accounts&parent_id=${user.id}`).then(data => {
-        if (Array.isArray(data)) setLinkedAccounts(data);
+      api(`get_parent_dashboard&parent_id=${user.id}`).then(data => {
+        if (data && Array.isArray(data.notifications)) setNotifs(data.notifications);
+        if (data && Array.isArray(data.linked_accounts)) setLinkedAccounts(data.linked_accounts);
       });
     } else {
       setLinkedAccounts([]);
@@ -1463,14 +1457,13 @@ function ScheduleTab({ cls, user, electiveSubjects }: { cls: SchoolClass; user: 
   const [savingHoliday, setSavingHoliday] = useState(false);
   const [savingTrip, setSavingTrip] = useState(false);
 
+  // Раньше грузили каникулы+праздники+поездки тремя отдельными запросами (Promise.all) —
+  // теперь один вызов get_calendar_extras, backend сам собирает все три набора данных.
   const loadBreaksHolidays = async () => {
-    const [b, h, t] = await Promise.all([
-      api("get_breaks"), api("get_holidays"),
-      api(`get_trips&class_id=${cls.id}`),
-    ]);
-    if (Array.isArray(b)) setBreaks(b);
-    if (Array.isArray(h)) setHolidays(h);
-    if (Array.isArray(t)) setTrips(t);
+    const data = await api(`get_calendar_extras&class_id=${cls.id}`);
+    if (data && Array.isArray(data.breaks)) setBreaks(data.breaks);
+    if (data && Array.isArray(data.holidays)) setHolidays(data.holidays);
+    if (data && Array.isArray(data.trips)) setTrips(data.trips);
   };
 
   const openModuleEditor = () => {
