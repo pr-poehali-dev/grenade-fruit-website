@@ -21,8 +21,48 @@ CORS = {
 }
 
 
+# Пока контейнер функции "тёплый" (между вызовами не пересоздаётся), модуль не перезагружается
+# и эта глобальная переменная сохраняется — переиспользуем одно соединение с БД вместо того,
+# чтобы каждый вызов заново тратил время на TCP-хендшейк и аутентификацию в PostgreSQL.
+_pooled_conn = None
+
+
+class _ConnProxy:
+    """Обёртка над реальным psycopg2-соединением: .close() не закрывает сокет, а откатывает
+    незакоммиченные изменения и возвращает соединение в пул для следующего вызова функции."""
+    __slots__ = ("_conn",)
+
+    def __init__(self, conn):
+        self._conn = conn
+
+    def __getattr__(self, name):
+        return getattr(self._conn, name)
+
+    def close(self):
+        try:
+            self._conn.rollback()
+        except Exception:
+            pass
+
+
 def get_conn():
-    return psycopg2.connect(os.environ["DATABASE_URL"], cursor_factory=RealDictCursor)
+    global _pooled_conn
+    if _pooled_conn is not None:
+        try:
+            if _pooled_conn.closed == 0:
+                cur = _pooled_conn.cursor()
+                cur.execute("SELECT 1")
+                cur.close()
+                return _ConnProxy(_pooled_conn)
+        except Exception:
+            pass
+        try:
+            _pooled_conn.close()
+        except Exception:
+            pass
+        _pooled_conn = None
+    _pooled_conn = psycopg2.connect(os.environ["DATABASE_URL"], cursor_factory=RealDictCursor)
+    return _ConnProxy(_pooled_conn)
 
 
 def ok(data, status=200):
