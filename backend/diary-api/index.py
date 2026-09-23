@@ -1445,14 +1445,22 @@ def handle_get_attendance(params):
     return ok(list(rows))
 
 
+ATTENDANCE_STATUS_LABELS = {
+    "late": "Опоздание",
+    "absent": "Отсутствие",
+    "no_homework": "Не сделано домашнее задание",
+    "remark": "Замечание",
+}
+
+
 def handle_add_attendance(body):
     student_id = body.get("student_id")
     subject = (body.get("subject") or "").strip()
     status = body.get("status")
     lesson_date = body.get("lesson_date")
     class_id = body.get("class_id")
-    if not student_id or not subject or status not in ("absent", "late", "no_homework") or not lesson_date:
-        return err("student_id, subject, status (absent/late/no_homework), lesson_date required")
+    if not student_id or not subject or status not in ATTENDANCE_STATUS_LABELS or not lesson_date:
+        return err("student_id, subject, status (absent/late/no_homework/remark), lesson_date required")
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(
@@ -1461,7 +1469,7 @@ def handle_add_attendance(body):
         (student_id, class_id, subject, status, body.get("comment", ""), lesson_date, body.get("teacher_id"))
     )
     row = cur.fetchone()
-    label = "Опоздание" if status == "late" else ("Отсутствие" if status == "absent" else "Не сделано домашнее задание")
+    label = ATTENDANCE_STATUS_LABELS[status]
     cur.execute(
         f"""INSERT INTO {SCHEMA}.notifications (parent_id, text, type)
             SELECT parent_id, %s, 'attendance' FROM {SCHEMA}.parent_students WHERE student_id = %s""",
@@ -1475,8 +1483,8 @@ def handle_add_attendance(body):
 def handle_update_attendance(body):
     aid = body.get("id")
     status = body.get("status")
-    if not aid or status not in ("absent", "late", "no_homework"):
-        return err("id, status (absent/late/no_homework) required")
+    if not aid or status not in ATTENDANCE_STATUS_LABELS:
+        return err("id, status (absent/late/no_homework/remark) required")
     conn = get_conn()
     cur = conn.cursor()
     cur.execute(

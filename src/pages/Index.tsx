@@ -60,7 +60,7 @@ interface Trip { id: number; class_id: number; name: string; description: string
 interface Attachment { name: string; url: string; type: "file" | "link"; }
 interface Homework { id: number; subject: string; task: string; due_date: string; class_id: number; attachments?: Attachment[]; }
 interface Grade { id: number; student_id: number; subject: string; grade: number; grade_max?: number | null; is_final?: boolean; comment: string; grade_date: string; student_name: string; }
-interface Attendance { id: number; student_id: number; subject: string; status: "absent" | "late" | "no_homework"; comment: string; lesson_date: string; student_name: string; }
+interface Attendance { id: number; student_id: number; subject: string; status: "absent" | "late" | "no_homework" | "remark"; comment: string; lesson_date: string; student_name: string; }
 interface Recommendation { id: number; subject: string; text: string; rec_date: string; student_name: string; teacher_name: string; attachments?: Attachment[]; }
 interface Notification { id: number; text: string; type: string; is_read: boolean; created_at: string; }
 interface ChatMessage { id: number; class_id: number; sender_id: number; sender_name: string; sender_role: Role; text: string; created_at: string; }
@@ -3965,8 +3965,9 @@ function AttendanceTab({ cls, user, electiveSubjects, modules }: { cls: SchoolCl
       absent: recs.filter(r => r.status === "absent").length,
       late: recs.filter(r => r.status === "late").length,
       noHomework: recs.filter(r => r.status === "no_homework").length,
+      remark: recs.filter(r => r.status === "remark").length,
     };
-  }).filter(x => x.absent > 0 || x.late > 0 || x.noHomework > 0);
+  }).filter(x => x.absent > 0 || x.late > 0 || x.noHomework > 0 || x.remark > 0);
 
   const openAdd = () => {
     setEditing(null);
@@ -3999,17 +4000,19 @@ function AttendanceTab({ cls, user, electiveSubjects, modules }: { cls: SchoolCl
   const lateCount = records.filter(r => r.status === "late").length;
   const absentCount = records.filter(r => r.status === "absent").length;
   const noHomeworkCount = records.filter(r => r.status === "no_homework").length;
+  const remarkCount = records.filter(r => r.status === "remark").length;
 
   const statusMeta = (status: Attendance["status"]) => {
     if (status === "late") return { emoji: "⏰", label: "Опоздание", bg: "rgba(255,152,0,0.15)", color: "#e65100" };
     if (status === "no_homework") return { emoji: "📕", label: "Не сделано ДЗ", bg: "rgba(139,26,47,0.15)", color: "#8B1A2F" };
+    if (status === "remark") return { emoji: "⚠️", label: "Замечание", bg: "rgba(156,39,176,0.15)", color: "#6a1b78" };
     return { emoji: "🚫", label: "Отсутствие", bg: "rgba(244,67,54,0.15)", color: "#b71c1c" };
   };
 
   return (
     <div>
       <SectionTitle emoji="🚸" title={`Явка · ${cls.display_name || cls.name}`} sub={ownStudentName(user)} />
-      {!loading && (lateCount > 0 || absentCount > 0 || noHomeworkCount > 0) && (
+      {!loading && (lateCount > 0 || absentCount > 0 || noHomeworkCount > 0 || remarkCount > 0) && (
         <div className="flex gap-2 mb-4 flex-wrap">
           {absentCount > 0 && (
             <div className="px-4 py-2 rounded-2xl flex items-center gap-2" style={{ background: "rgba(244,67,54,0.12)", color: "#b71c1c" }}>
@@ -4026,6 +4029,11 @@ function AttendanceTab({ cls, user, electiveSubjects, modules }: { cls: SchoolCl
               <span className="text-sm font-semibold">Не сделано ДЗ: {noHomeworkCount}</span>
             </div>
           )}
+          {remarkCount > 0 && (
+            <div className="px-4 py-2 rounded-2xl flex items-center gap-2" style={{ background: "rgba(156,39,176,0.12)", color: "#6a1b78" }}>
+              <span className="text-sm font-semibold">Замечаний: {remarkCount}</span>
+            </div>
+          )}
         </div>
       )}
       {modules.length > 0 && (
@@ -4035,7 +4043,7 @@ function AttendanceTab({ cls, user, electiveSubjects, modules }: { cls: SchoolCl
           <Icon name="BarChart3" size={13} /> Сводка за модуль
         </button>
       )}
-      {user.role === "teacher" && <AddBtn label="Отметить опоздание/отсутствие/ДЗ" onClick={openAdd} />}
+      {user.role === "teacher" && <AddBtn label="Отметить опоздание/отсутствие/ДЗ/замечание" onClick={openAdd} />}
       {loading ? <Loader /> : (
         <div className="space-y-3">
           {records.length === 0 && <Empty text="Записей нет" />}
@@ -4094,6 +4102,7 @@ function AttendanceTab({ cls, user, electiveSubjects, modules }: { cls: SchoolCl
                     <option value="absent">Отсутствие</option>
                     <option value="late">Опоздание</option>
                     <option value="no_homework">Не сделано домашнее задание</option>
+                    <option value="remark">Замечание</option>
                   </Select>
                 </Field>
                 <Field label="Дата"><Input type="date" value={form.lesson_date} onChange={e => setForm(f => ({ ...f, lesson_date: e.target.value }))} required /></Field>
@@ -4127,16 +4136,20 @@ function AttendanceTab({ cls, user, electiveSubjects, modules }: { cls: SchoolCl
               <div className="px-4 py-2 rounded-2xl flex items-center gap-2" style={{ background: "rgba(139,26,47,0.12)", color: "#8B1A2F" }}>
                 <span className="text-sm font-semibold">Не сделано ДЗ: {moduleRecords.filter(r => r.status === "no_homework").length}</span>
               </div>
+              <div className="px-4 py-2 rounded-2xl flex items-center gap-2" style={{ background: "rgba(156,39,176,0.12)", color: "#6a1b78" }}>
+                <span className="text-sm font-semibold">Замечаний: {moduleRecords.filter(r => r.status === "remark").length}</span>
+              </div>
             </div>
             {user.role === "teacher" && (
               <div className="space-y-2 pt-2">
                 {studentSummary.length === 0 && <Empty text="За этот модуль пропусков нет" />}
-                {studentSummary.map(({ student, absent, late, noHomework }) => (
+                {studentSummary.map(({ student, absent, late, noHomework, remark }) => (
                   <div key={student.id} className="flex items-center gap-3 px-4 py-2.5 rounded-2xl" style={{ background: "#FDF6EE", border: "1.5px solid rgba(139,26,47,0.08)" }}>
                     <p className="font-medium text-sm flex-1" style={{ color: "#3D1520" }}>{student.full_name}</p>
                     {absent > 0 && <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: "rgba(244,67,54,0.15)", color: "#b71c1c" }}>🚫 {absent}</span>}
                     {late > 0 && <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: "rgba(255,152,0,0.15)", color: "#e65100" }}>⏰ {late}</span>}
                     {noHomework > 0 && <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: "rgba(139,26,47,0.15)", color: "#8B1A2F" }}>📕 {noHomework}</span>}
+                    {remark > 0 && <span className="text-xs font-semibold px-2 py-0.5 rounded-full" style={{ background: "rgba(156,39,176,0.15)", color: "#6a1b78" }}>⚠️ {remark}</span>}
                   </div>
                 ))}
               </div>
