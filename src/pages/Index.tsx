@@ -1165,6 +1165,11 @@ function ScheduleTab({ cls, user, electiveSubjects, modules, reloadModules }: { 
   const [loadingDates, setLoadingDates] = useState(false);
   const [showModuleForm, setShowModuleForm] = useState(false);
   const [savingModule, setSavingModule] = useState(false);
+  const [showCopyModule, setShowCopyModule] = useState(false);
+  const [copySourceId, setCopySourceId] = useState("");
+  const [copyAllClasses, setCopyAllClasses] = useState(false);
+  const [copying, setCopying] = useState(false);
+  const [copyError, setCopyError] = useState("");
 
   // Single day-lesson edit/add (module calendar view)
   const [showDateLessonForm, setShowDateLessonForm] = useState(false);
@@ -1415,6 +1420,31 @@ function ScheduleTab({ cls, user, electiveSubjects, modules, reloadModules }: { 
     });
     setSavingModule(false);
     setShowModuleForm(false);
+    await Promise.all([loadDates(selectedModule.id), loadWeekDates()]);
+  };
+
+  const openCopyModule = () => {
+    const other = modules.find(m => m.id !== selectedModule?.id);
+    setCopySourceId(other ? String(other.id) : "");
+    setCopyAllClasses(false);
+    setCopyError("");
+    setShowCopyModule(true);
+  };
+
+  const copyModuleSchedule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedModule || !copySourceId) return;
+    setCopying(true);
+    setCopyError("");
+    const res = await api("copy_module_schedule", "POST", {
+      source_module_id: Number(copySourceId),
+      target_module_id: selectedModule.id,
+      class_id: cls.id,
+      all_classes: copyAllClasses,
+    });
+    setCopying(false);
+    if (res && res.error) { setCopyError(res.error); return; }
+    setShowCopyModule(false);
     await Promise.all([loadDates(selectedModule.id), loadWeekDates()]);
   };
 
@@ -1775,11 +1805,20 @@ function ScheduleTab({ cls, user, electiveSubjects, modules, reloadModules }: { 
                   {formatDate(selectedModule.date_start)} — {formatDate(selectedModule.date_end)} · {selectedModule.school_year}
                 </p>
                 {user.role === "teacher" && (
-                  <button onClick={openModuleForm}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all hover:opacity-80"
-                    style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)", color: "white" }}>
-                    <Icon name="CalendarPlus" size={13} /> {schedDates.length > 0 ? "Изменить расписание" : "Заполнить модуль"}
-                  </button>
+                  <div className="flex gap-2 flex-wrap justify-end">
+                    {modules.length > 1 && (
+                      <button onClick={openCopyModule}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all hover:opacity-80"
+                        style={{ background: "white", color: "#8B1A2F", border: "1.5px solid rgba(139,26,47,0.25)" }}>
+                        <Icon name="Copy" size={13} /> Скопировать с модуля
+                      </button>
+                    )}
+                    <button onClick={openModuleForm}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all hover:opacity-80"
+                      style={{ background: "linear-gradient(135deg, #5C0F1E, #8B1A2F)", color: "white" }}>
+                      <Icon name="CalendarPlus" size={13} /> {schedDates.length > 0 ? "Изменить расписание" : "Заполнить модуль"}
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -2080,6 +2119,27 @@ function ScheduleTab({ cls, user, electiveSubjects, modules, reloadModules }: { 
             </form>
           </div>
         </div>
+      )}
+
+      {showCopyModule && selectedModule && (
+        <Modal title="Копирование расписания" onClose={() => setShowCopyModule(false)}>
+          <form onSubmit={copyModuleSchedule} className="space-y-3">
+            <p className="text-sm" style={{ color: "#9B6A7A" }}>
+              Основные занятия и факультативы будут перенесены в «{selectedModule.name}». Текущее расписание этого модуля заменится.
+            </p>
+            <Field label="Копировать с модуля">
+              <Select value={copySourceId} onChange={e => setCopySourceId(e.target.value)} required>
+                {modules.filter(m => m.id !== selectedModule.id).map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+              </Select>
+            </Field>
+            <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: "#3D1520" }}>
+              <input type="checkbox" checked={copyAllClasses} onChange={e => setCopyAllClasses(e.target.checked)} />
+              Для всех классов (иначе только {cls.display_name || cls.name})
+            </label>
+            {copyError && <p className="text-sm" style={{ color: "#b71c1c" }}>{copyError}</p>}
+            <SaveBtn label="Скопировать" loading={copying} />
+          </form>
+        </Modal>
       )}
 
       {/* ── MODAL: module editor ── */}

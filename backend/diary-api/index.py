@@ -173,6 +173,8 @@ def handler(event: dict, context) -> dict:
         return handle_get_schedule_dates(params)
     if action == "save_module_schedule":
         return handle_save_module_schedule(body)
+    if action == "copy_module_schedule":
+        return handle_copy_module_schedule(body)
     if action == "add_schedule_date":
         return handle_add_schedule_date(body)
     if action == "update_schedule_date":
@@ -1283,6 +1285,109 @@ def handle_save_module_schedule(body):
     conn.commit()
     conn.close()
     return ok({"ok": True, "inserted": len(rows_to_insert)})
+
+
+def handle_copy_module_schedule(body):
+    """Копирует расписание (основные занятия и факультативы) с одного модуля на другой.
+    Принимает: source_module_id, target_module_id, class_id (один класс) или all_classes=true.
+    Недельный шаблон берётся из самых типичных недель исходного модуля и разворачивается
+    на даты целевого модуля без каникул и нерабочих праздников. Старое расписание цели заменяется."""
+    import datetime
+    from collections import Counter
+
+    source_id = body.get("source_module_id")
+    target_id = body.get("target_module_id")
+    class_id = body.get("class_id")
+    all_classes = bool(body.get("all_classes"))
+    if not source_id or not target_id or (not class_id and not all_classes):
+        return err("source_module_id, target_module_id, class_id или all_classes required")
+    if str(source_id) == str(target_id):
+        return err("Выберите другой модуль для копирования")
+
+    conn = get_conn()
+    cur = conn.cursor()
+
+    cur.execute(f"SELECT id, date_start, date_end, school_year FROM {SCHEMA}.modules WHERE id = %s", (target_id,))
+    target = cur.fetchone()
+    cur.execute(f"SELECT id FROM {SCHEMA}.modules WHERE id = %s", (source_id,))
+    if not target or not cur.fetchone():
+        conn.close()
+        return err("Модуль не найден", 404)
+
+    if all_classes:
+        cur.execute(
+            f"SELECT class_id, lesson_date, day_of_week, time_slot, subject, teacher_name, room, sort_order "
+            f"FROM {SCHEMA}.schedule_dates WHERE module_id = %s AND sort_order >= 0 AND class_id IS NOT NULL "
+            f"ORDER BY class_id, lesson_date, sort_order",
+            (source_id,)
+        )
+    else:
+        cur.execute(
+            f"SELECT class_id, lesson_date, day_of_week, time_slot, subject, teacher_name, room, sort_order "
+            f"FROM {SCHEMA}.schedule_dates WHERE module_id = %s AND class_id = %s AND sort_order >= 0 "
+            f"ORDER BY class_id, lesson_date, sort_order",
+            (source_id, class_id)
+        )
+    source_rows = cur.fetchall()
+    if not source_rows:
+        conn.close()
+        return err("В исходном модуле нет расписания", 404)
+
+    by_day = {}
+    for r in source_rows:
+        key = (r["class_id"], r["day_of_week"])
+        by_day.setdefault(key, {}).setdefault(str(r["lesson_date"]), []).append(
+            (r["time_slot"], r["subject"], r["teacher_name"], r["room"])
+        )
+    templates = {}
+    for (cid, day), dates in by_day.items():
+        variants = Counter(tuple(lessons) for lessons in dates.values())
+        templates.setdefault(cid, {})[day] = list(variants.most_common(1)[0][0])
+
+    year = target["school_year"]
+    cur.execute(f"SELECT holiday_date FROM {SCHEMA}.holidays WHERE school_year = %s AND cancels_lessons = true", (year,))
+    excluded = {r["holiday_date"] if isinstance(r["holiday_date"], datetime.date) else datetime.date.fromisoformat(str(r["holiday_date"])) for r in cur.fetchall()}
+    cur.execute(f"SELECT date_start, date_end FROM {SCHEMA}.breaks WHERE school_year = %s", (year,))
+    for br in cur.fetchall():
+        d = br["date_start"] if isinstance(br["date_start"], datetime.date) else datetime.date.fromisoformat(str(br["date_start"]))
+        be = br["date_end"] if isinstance(br["date_end"], datetime.date) else datetime.date.fromisoformat(str(br["date_end"]))
+        while d <= be:
+            excluded.add(d)
+            d += datetime.timedelta(days=1)
+
+    start = target["date_start"] if isinstance(target["date_start"], datetime.date) else datetime.date.fromisoformat(str(target["date_start"]))
+    end = target["date_end"] if isinstance(target["date_end"], datetime.date) else datetime.date.fromisoformat(str(target["date_end"]))
+    day_names = ["Понедельник", "Вторник", "Среда", "Четверг", "Пятница"]
+
+    rows_to_insert = []
+    current = start
+    while current <= end:
+        if current.weekday() < 5 and current not in excluded:
+            day_name = day_names[current.weekday()]
+            iso = current.isoformat()
+            for cid, tpl in templates.items():
+                lessons = sorted(tpl.get(day_name, []), key=lambda l: l[0] or "")
+                for idx, (slot, subject, teacher, room) in enumerate(lessons):
+                    rows_to_insert.append((cid, target_id, iso, day_name, slot, subject, teacher, room, idx))
+        current += datetime.timedelta(days=1)
+
+    class_ids = list(templates.keys())
+    cur.execute(
+        f"UPDATE {SCHEMA}.schedule_dates SET sort_order = -1, module_id = NULL "
+        f"WHERE module_id = %s AND class_id = ANY(%s) AND sort_order >= 0",
+        (target_id, class_ids)
+    )
+    if rows_to_insert:
+        execute_values(
+            cur,
+            f"""INSERT INTO {SCHEMA}.schedule_dates
+                (class_id, module_id, lesson_date, day_of_week, time_slot, subject, teacher_name, room, sort_order)
+                VALUES %s""",
+            rows_to_insert
+        )
+    conn.commit()
+    conn.close()
+    return ok({"ok": True, "inserted": len(rows_to_insert), "classes": len(class_ids)})
 
 
 # ── Homework ──────────────────────────────────────────────

@@ -36,6 +36,15 @@
       "bodyMatcher": "partial"
     },
     {
+      "name": "Copy module schedule same module rejected",
+      "method": "POST",
+      "path": "/?action=copy_module_schedule",
+      "body": {"source_module_id": 1, "target_module_id": 1, "class_id": 14},
+      "expectedStatus": 400,
+      "expectedBody": {"error": "string"},
+      "bodyMatcher": "partial"
+    },
+    {
       "name": "Get calendar extras",
       "method": "GET",
       "path": "/?action=get_calendar_extras&class_id=14",
