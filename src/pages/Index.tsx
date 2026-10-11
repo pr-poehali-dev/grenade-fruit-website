@@ -55,7 +55,7 @@ interface ScheduleItem { id: number; day_of_week: string; time_slot: string; sub
 interface Module { id: number; name: string; number: number; date_start: string; date_end: string; school_year: string; }
 interface ScheduleDate { id: number; lesson_date: string; day_of_week: string; time_slot: string; subject: string; teacher_name: string; room: string; sort_order: number; }
 interface Break { id: number; name: string; date_start: string; date_end: string; school_year: string; }
-interface Holiday { id: number; name: string; holiday_date: string; school_year: string; cancels_lessons: boolean; }
+interface Holiday { id: number; name: string; holiday_date: string; school_year: string; cancels_lessons: boolean; kind?: "holiday" | "event"; }
 interface Trip { id: number; class_id: number; name: string; description: string; trip_date: string; date_end: string; }
 interface Attachment { name: string; url: string; type: "file" | "link"; }
 interface Homework { id: number; subject: string; task: string; due_date: string; class_id: number; attachments?: Attachment[]; }
@@ -1291,8 +1291,9 @@ function ScheduleTab({ cls, user, electiveSubjects, modules, reloadModules }: { 
     if (form.event_type === "trip") {
       await api("add_trip", "POST", { name: form.event_name, description: form.event_description, trip_date: form.event_date, date_end: form.event_date, class_id: cls.id });
       loadBreaksHolidays();
-    } else if (form.event_type === "holiday") {
-      await api("add_holiday", "POST", { name: form.event_name, holiday_date: form.event_date });
+    } else if (form.event_type === "holiday" || form.event_type === "event") {
+      const res = await api("add_holiday", "POST", { name: form.event_name, holiday_date: form.event_date, kind: form.event_type, cancels_lessons: false });
+      if (res && res.error) alert(res.error);
       loadBreaksHolidays();
     } else {
       if (editing) await api("update_schedule", "POST", { ...form, id: editing.id });
@@ -1696,7 +1697,7 @@ function ScheduleTab({ cls, user, electiveSubjects, modules, reloadModules }: { 
                       {(isBreakDay || isHolidayDay) && (
                         <div className="flex items-center gap-2 px-3 py-2 rounded-xl mb-1"
                           style={{ background: isBreakDay ? "rgba(212,168,67,0.1)" : "rgba(76,175,80,0.08)", border: `1.5px solid ${isBreakDay ? "rgba(212,168,67,0.3)" : "rgba(76,175,80,0.25)"}` }}>
-                          <span>{isBreakDay ? "🏖" : "🎉"}</span>
+                          <span>{isBreakDay ? "🏖" : holiday?.kind === "event" ? "🎭" : "🎉"}</span>
                           <span className="text-xs font-medium flex-1" style={{ color: isBreakDay ? "#7A5700" : "#2E7D32" }}>
                             {isHolidayDay ? holiday?.name : (breakItem?.name || "Каникулы")}
                             {isHolidayDay && !isHolidayCancels && <span className="font-normal" style={{ color: "#5B8D63" }}> · уроки по расписанию</span>}
@@ -1893,7 +1894,7 @@ function ScheduleTab({ cls, user, electiveSubjects, modules, reloadModules }: { 
                               {isHoliday && !isHolidayCancels && holiday && (
                                 <span className="inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full mr-1"
                                   style={{ background: "rgba(76,175,80,0.15)", color: "#2E7D32" }}>
-                                  🎉 {holiday.name}
+                                  {holiday.kind === "event" ? "🎭" : "🎉"} {holiday.name}
                                 </span>
                               )}
                               {lessons.length > 0 ? (
@@ -2004,8 +2005,8 @@ function ScheduleTab({ cls, user, electiveSubjects, modules, reloadModules }: { 
         <Modal title={editing ? "Редактировать урок" : "Добавить в расписание"} onClose={() => setShowAdd(false)}>
           <form onSubmit={saveItem} className="space-y-3">
             {!editing && (
-              <div className="grid grid-cols-3 gap-1 p-1 rounded-xl" style={{ background: "#F5E0E5" }}>
-                {[{ val: "lesson", label: "📚 Урок", disabled: !isLessonDateAllowed(form.event_date) }, { val: "trip", label: "🚌 Выезд", disabled: false }, { val: "holiday", label: "🎉 Праздник", disabled: false }].map(({ val, label, disabled }) => (
+              <div className="grid grid-cols-4 gap-1 p-1 rounded-xl" style={{ background: "#F5E0E5" }}>
+                {[{ val: "lesson", label: "📚 Урок", disabled: !isLessonDateAllowed(form.event_date) }, { val: "trip", label: "🚌 Выезд", disabled: false }, { val: "holiday", label: "🎉 Праздник", disabled: false }, { val: "event", label: "🎭 Событие", disabled: false }].map(({ val, label, disabled }) => (
                   <button key={val} type="button" disabled={disabled} onClick={() => setForm(f => ({ ...f, event_type: val }))}
                     className="py-1.5 text-xs font-semibold rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     style={{ background: form.event_type === val ? "#8B1A2F" : "transparent", color: form.event_type === val ? "white" : "#8B1A2F" }}>
@@ -2057,6 +2058,12 @@ function ScheduleTab({ cls, user, electiveSubjects, modules, reloadModules }: { 
             {form.event_type === "holiday" && (<>
               <Field label="Название праздника"><Input value={form.event_name} onChange={e => setForm(f => ({ ...f, event_name: e.target.value }))} placeholder="День Победы" required /></Field>
               <Field label="Дата"><Input type="date" value={form.event_date} onChange={e => setForm(f => ({ ...f, event_date: e.target.value }))} required /></Field>
+            </>)}
+
+            {form.event_type === "event" && (<>
+              <Field label="Название события"><Input value={form.event_name} onChange={e => setForm(f => ({ ...f, event_name: e.target.value }))} placeholder="Тематический день науки" required /></Field>
+              <Field label="Дата"><Input type="date" value={form.event_date} onChange={e => setForm(f => ({ ...f, event_date: e.target.value }))} required /></Field>
+              <p className="text-xs" style={{ color: "#9B6A7A" }}>Уроки в этот день не отменяются — событие показывается над ними.</p>
             </>)}
 
             <SaveBtn loading={savingItem} />

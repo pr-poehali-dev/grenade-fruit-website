@@ -1019,6 +1019,9 @@ def handle_add_holiday(body):
     holiday_date = (body.get("holiday_date") or "").strip()
     year = body.get("school_year", "2026-2027")
     cancels_lessons = body.get("cancels_lessons", True)
+    kind = "event" if body.get("kind") == "event" else "holiday"
+    if kind == "event":
+        cancels_lessons = False
     if not name or not holiday_date:
         return err("name, holiday_date required")
     conn = get_conn()
@@ -1029,8 +1032,8 @@ def handle_add_holiday(body):
         conn.close()
         return err("Эта дата уже добавлена")
     cur.execute(
-        f"INSERT INTO {SCHEMA}.holidays (name, holiday_date, school_year, cancels_lessons) VALUES (%s, %s, %s, %s) RETURNING *",
-        (name, holiday_date, year, cancels_lessons)
+        f"INSERT INTO {SCHEMA}.holidays (name, holiday_date, school_year, cancels_lessons, kind) VALUES (%s, %s, %s, %s, %s) RETURNING *",
+        (name, holiday_date, year, cancels_lessons, kind)
     )
     row = cur.fetchone()
     conn.commit()
