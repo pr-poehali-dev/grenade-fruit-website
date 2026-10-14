@@ -3633,12 +3633,23 @@ function GradesTab({ cls, user, electiveSubjects, modules }: { cls: SchoolClass;
 
   useEffect(() => { load(); }, [load]);
 
-  useEffect(() => {
-    if (modules.length === 0) return;
-    const todayIso = new Date().toISOString().split("T")[0];
-    const current = modules.find(m => todayIso >= m.date_start && todayIso <= m.date_end);
-    setSelectedModule(current || modules[0] || null);
+  const currentModule = useMemo(() => {
+    if (modules.length === 0) return null;
+    const todayIso = localIsoDate(nowMoscow());
+    return modules.find(m => todayIso >= m.date_start && todayIso <= m.date_end)
+      || [...modules].reverse().find(m => m.date_end < todayIso)
+      || modules[0];
   }, [modules]);
+
+  useEffect(() => { setSelectedModule(currentModule); }, [currentModule]);
+
+  const currentModuleGrades = useMemo(
+    () => currentModule ? grades.filter(g => parseRuDateInModule(g.grade_date, currentModule) !== null) : grades,
+    [grades, currentModule]
+  );
+  const currentAvgPct = currentModuleGrades.length > 0
+    ? Math.round(currentModuleGrades.reduce((sum, g) => sum + gradeToPercent(g.grade, g.grade_max), 0) / currentModuleGrades.length)
+    : null;
 
   const emptyForm = { student_id: "", subject: "", grade_type: "score" as "score" | "fraction", grade: "5", grade_max: "10", is_final: false, comment: "", grade_date: "" };
 
@@ -3818,8 +3829,23 @@ function GradesTab({ cls, user, electiveSubjects, modules }: { cls: SchoolClass;
   return (
     <div>
       <SectionTitle emoji="⭐" title={`Отметки · ${cls.display_name || cls.name}`} sub={ownStudentName(user)} />
+      {!loading && currentModule && (
+        <div className="mb-4">
+          <p className="text-xs mb-2" style={{ color: "#9B6A7A" }}>
+            Сводка за {currentModule.name}: {new Date(currentModule.date_start).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })} — {new Date(currentModule.date_end).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            <div className="px-4 py-2 rounded-2xl flex items-center gap-2" style={{ background: "rgba(139,26,47,0.12)", color: "#8B1A2F" }}>
+              <span className="text-sm font-semibold">Отметок: {currentModuleGrades.length}</span>
+            </div>
+            <div className="px-4 py-2 rounded-2xl flex items-center gap-2" style={{ background: "rgba(76,175,80,0.12)", color: "#2E7D32" }}>
+              <span className="text-sm font-semibold">Средний результат: {currentAvgPct === null ? "—" : `${currentAvgPct}%`}</span>
+            </div>
+          </div>
+        </div>
+      )}
       {modules.length > 0 && (
-        <button onClick={() => setShowSummary(true)}
+        <button onClick={() => { setSelectedModule(currentModule); setShowSummary(true); }}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium mb-4 transition-all hover:opacity-80"
           style={{ background: "white", color: "#8B1A2F", border: "1.5px solid rgba(139,26,47,0.2)" }}>
           <Icon name="BarChart3" size={13} /> Сводка за модуль
