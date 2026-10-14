@@ -4091,12 +4091,19 @@ function AttendanceTab({ cls, user, electiveSubjects, modules }: { cls: SchoolCl
 
   useEffect(() => { load(); }, [load]);
 
-  useEffect(() => {
-    if (modules.length === 0) return;
-    const todayIso = new Date().toISOString().split("T")[0];
-    const current = modules.find(m => todayIso >= m.date_start && todayIso <= m.date_end);
-    setSelectedModule(current || modules[0] || null);
+  const currentModule = useMemo(() => {
+    if (modules.length === 0) return null;
+    const todayIso = localIsoDate(nowMoscow());
+    return modules.find(m => todayIso >= m.date_start && todayIso <= m.date_end)
+      || [...modules].reverse().find(m => m.date_end < todayIso)
+      || modules[0];
   }, [modules]);
+
+  useEffect(() => { setSelectedModule(currentModule); }, [currentModule]);
+
+  const currentModuleRecords = currentModule
+    ? records.filter(r => r.lesson_date >= currentModule.date_start && r.lesson_date <= currentModule.date_end)
+    : records;
 
   const moduleRecords = selectedModule
     ? records.filter(r => r.lesson_date >= selectedModule.date_start && r.lesson_date <= selectedModule.date_end)
@@ -4141,10 +4148,10 @@ function AttendanceTab({ cls, user, electiveSubjects, modules }: { cls: SchoolCl
     load();
   };
 
-  const lateCount = records.filter(r => r.status === "late").length;
-  const absentCount = records.filter(r => r.status === "absent").length;
-  const noHomeworkCount = records.filter(r => r.status === "no_homework").length;
-  const remarkCount = records.filter(r => r.status === "remark").length;
+  const lateCount = currentModuleRecords.filter(r => r.status === "late").length;
+  const absentCount = currentModuleRecords.filter(r => r.status === "absent").length;
+  const noHomeworkCount = currentModuleRecords.filter(r => r.status === "no_homework").length;
+  const remarkCount = currentModuleRecords.filter(r => r.status === "remark").length;
 
   const statusMeta = (status: Attendance["status"]) => {
     if (status === "late") return { emoji: "⏰", label: "Опоздание", bg: "rgba(255,152,0,0.15)", color: "#e65100" };
@@ -4156,32 +4163,31 @@ function AttendanceTab({ cls, user, electiveSubjects, modules }: { cls: SchoolCl
   return (
     <div>
       <SectionTitle emoji="🚸" title={`Явка · ${cls.display_name || cls.name}`} sub={ownStudentName(user)} />
-      {!loading && (lateCount > 0 || absentCount > 0 || noHomeworkCount > 0 || remarkCount > 0) && (
-        <div className="flex gap-2 mb-4 flex-wrap">
-          {absentCount > 0 && (
+      {!loading && (
+        <div className="mb-4">
+          {currentModule && (
+            <p className="text-xs mb-2" style={{ color: "#9B6A7A" }}>
+              Сводка за {currentModule.name}: {new Date(currentModule.date_start).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })} — {new Date(currentModule.date_end).toLocaleDateString("ru-RU", { day: "numeric", month: "long" })}
+            </p>
+          )}
+          <div className="flex gap-2 flex-wrap">
             <div className="px-4 py-2 rounded-2xl flex items-center gap-2" style={{ background: "rgba(244,67,54,0.12)", color: "#b71c1c" }}>
               <span className="text-sm font-semibold">Отсутствий: {absentCount}</span>
             </div>
-          )}
-          {lateCount > 0 && (
             <div className="px-4 py-2 rounded-2xl flex items-center gap-2" style={{ background: "rgba(255,152,0,0.12)", color: "#e65100" }}>
               <span className="text-sm font-semibold">Опозданий: {lateCount}</span>
             </div>
-          )}
-          {noHomeworkCount > 0 && (
             <div className="px-4 py-2 rounded-2xl flex items-center gap-2" style={{ background: "rgba(139,26,47,0.12)", color: "#8B1A2F" }}>
               <span className="text-sm font-semibold">Не сделано ДЗ: {noHomeworkCount}</span>
             </div>
-          )}
-          {remarkCount > 0 && (
             <div className="px-4 py-2 rounded-2xl flex items-center gap-2" style={{ background: "rgba(156,39,176,0.12)", color: "#6a1b78" }}>
               <span className="text-sm font-semibold">Замечаний: {remarkCount}</span>
             </div>
-          )}
+          </div>
         </div>
       )}
       {modules.length > 0 && (
-        <button onClick={() => setShowSummary(true)}
+        <button onClick={() => { setSelectedModule(currentModule); setShowSummary(true); }}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium mb-4 transition-all hover:opacity-80"
           style={{ background: "white", color: "#8B1A2F", border: "1.5px solid rgba(139,26,47,0.2)" }}>
           <Icon name="BarChart3" size={13} /> Сводка за модуль
