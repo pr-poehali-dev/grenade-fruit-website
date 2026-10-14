@@ -1089,7 +1089,7 @@ export default function Index() {
                 {tab === "attendance" && <AttendanceTab cls={selectedClass} user={user} electiveSubjects={electiveSubjects} modules={modules} />}
                 {tab === "recommendations" && <RecsTab cls={selectedClass} user={user} />}
                 {tab === "chat" && user.role !== "student" && <ChatTab cls={selectedClass} user={user} />}
-                {tab === "archive" && <ArchiveTab cls={selectedClass} />}
+                {tab === "archive" && <ArchiveTab cls={selectedClass} user={user} electiveSubjects={electiveSubjects} />}
                 {tab === "classes" && user.role === "teacher" && <StudentsTab cls={selectedClass} />}
                 {tab === "parents" && user.role === "teacher" && <ParentsTab cls={selectedClass} />}
                 {tab === "students_login" && user.role === "teacher" && <StudentLoginsTab cls={selectedClass} />}
@@ -3303,9 +3303,41 @@ function HomeworkTab({ cls, user, electiveSubjects }: { cls: SchoolClass; user: 
 }
 
 // ─── Archive Tab (просроченные ДЗ выбранного класса) ─────────
-function ArchiveTab({ cls }: { cls: SchoolClass }) {
+function ArchiveTab({ cls, user, electiveSubjects }: { cls: SchoolClass; user: User; electiveSubjects: string[] }) {
   const [items, setItems] = useState<Homework[]>([]);
   const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<Homework | null>(null);
+  const [form, setForm] = useState({ subject: "", task: "", due_date: "" });
+  const [dueDateIso, setDueDateIso] = useState("");
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [linkInput, setLinkInput] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const openEdit = (hw: Homework) => {
+    setEditing(hw);
+    setForm({ subject: hw.subject, task: hw.task, due_date: hw.due_date });
+    setDueDateIso(ruDateTextToIso(hw.due_date));
+    setAttachments(hw.attachments || []);
+    setLinkInput("");
+  };
+
+  const addLink = () => {
+    const url = linkInput.trim();
+    if (!url) return;
+    const name = url.replace(/^https?:\/\//, "").slice(0, 40);
+    setAttachments(a => [...a, { name, url: url.startsWith("http") ? url : `https://${url}`, type: "link" }]);
+    setLinkInput("");
+  };
+
+  const save = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editing) return;
+    setSaving(true);
+    await api("update_homework", "POST", { ...form, id: editing.id, attachments });
+    setSaving(false);
+    setEditing(null);
+    load();
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -3332,6 +3364,11 @@ function ArchiveTab({ cls }: { cls: SchoolClass }) {
               <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold" style={{ background: "#F5E0E5", color: "#8B1A2F" }}>{hw.subject}</span>
                 <span className="text-xs" style={{ color: "#9B6A7A" }}>срок был до {hw.due_date}</span>
+                {user.role === "teacher" && (
+                  <button onClick={() => openEdit(hw)} className="ml-auto w-7 h-7 rounded-lg flex items-center justify-center hover:bg-gray-100 shrink-0">
+                    <Icon name="Pencil" size={13} style={{ color: "#8B1A2F" }} />
+                  </button>
+                )}
               </div>
               <p className="text-sm leading-relaxed whitespace-pre-line" style={{ color: "#3D1520" }}>{hw.task}</p>
               {hw.attachments && hw.attachments.length > 0 && (
@@ -3349,6 +3386,46 @@ function ArchiveTab({ cls }: { cls: SchoolClass }) {
             </div>
           ))}
         </div>
+      )}
+
+      {editing && (
+        <Modal title="Редактировать ДЗ" onClose={() => setEditing(null)}>
+          <form onSubmit={save} className="space-y-3">
+            <Field label="Предмет">
+              <Select value={form.subject} onChange={e => setForm(f => ({ ...f, subject: e.target.value }))} required>
+                <option value="">— Выберите предмет —</option>
+                {Array.from(new Set([...getSubjectsByGrade(cls.grade, electiveSubjects), form.subject].filter(Boolean))).map(s => <option key={s} value={s}>{s}</option>)}
+              </Select>
+            </Field>
+            <Field label="Задание"><Textarea rows={4} value={form.task} onChange={e => setForm(f => ({ ...f, task: e.target.value }))} required /></Field>
+            <Field label="Срок сдачи">
+              <Input type="date" value={dueDateIso} onChange={e => { setDueDateIso(e.target.value); setForm(f => ({ ...f, due_date: isoToRuDateText(e.target.value) })); }} required />
+            </Field>
+            <p className="text-xs" style={{ color: "#9B6A7A" }}>Если выбрать будущую дату, задание вернётся из архива в список заданий.</p>
+            <Field label="Ссылка">
+              <div className="flex gap-2">
+                <Input value={linkInput} onChange={e => setLinkInput(e.target.value)} placeholder="https://..." />
+                <button type="button" onClick={addLink} className="px-3 rounded-xl text-sm font-medium shrink-0" style={{ background: "#8B1A2F", color: "white" }}>
+                  <Icon name="Plus" size={15} />
+                </button>
+              </div>
+            </Field>
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {attachments.map((a, i) => (
+                  <span key={i} className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded-lg font-medium" style={{ background: "rgba(212,168,67,0.12)", color: "#7A5700" }}>
+                    <Icon name={a.type === "link" ? "Link" : "Paperclip"} size={12} />
+                    {a.name}
+                    <button type="button" onClick={() => setAttachments(arr => arr.filter((_, j) => j !== i))}>
+                      <Icon name="X" size={12} />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+            <SaveBtn loading={saving} />
+          </form>
+        </Modal>
       )}
     </div>
   );
