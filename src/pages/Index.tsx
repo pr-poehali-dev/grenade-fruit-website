@@ -1288,19 +1288,25 @@ function ScheduleTab({ cls, user, electiveSubjects, modules, reloadModules }: { 
       return;
     }
     setSavingItem(true);
-    if (form.event_type === "trip") {
-      await api("add_trip", "POST", { name: form.event_name, description: form.event_description, trip_date: form.event_date, date_end: form.event_date, class_id: cls.id });
-      loadBreaksHolidays();
-    } else if (form.event_type === "holiday" || form.event_type === "event") {
-      const res = await api("add_holiday", "POST", { name: form.event_name, holiday_date: form.event_date, kind: form.event_type, cancels_lessons: false });
-      if (res && res.error) alert(res.error);
-      loadBreaksHolidays();
-    } else {
-      if (editing) await api("update_schedule", "POST", { ...form, id: editing.id });
-      else await api("add_schedule", "POST", { ...form, class_id: cls.id });
-      loadWeek();
+    try {
+      if (form.event_type === "trip") {
+        await api("add_trip", "POST", { name: form.event_name, description: form.event_description, trip_date: form.event_date, date_end: form.event_date, class_id: cls.id });
+        loadBreaksHolidays();
+      } else if (form.event_type === "holiday" || form.event_type === "event") {
+        const res = await api("add_holiday", "POST", { name: form.event_name, holiday_date: form.event_date, kind: form.event_type, cancels_lessons: false });
+        if (res && res.error) { alert(res.error); return; }
+        loadBreaksHolidays();
+      } else {
+        if (editing) await api("update_schedule", "POST", { ...form, id: editing.id });
+        else await api("add_schedule", "POST", { ...form, class_id: cls.id });
+        loadWeek();
+      }
+      setShowAdd(false);
+    } catch {
+      alert("Не удалось сохранить. Попробуйте ещё раз");
+    } finally {
+      setSavingItem(false);
     }
-    setSavingItem(false); setShowAdd(false);
   };
 
   const delItem = async (id: number) => {

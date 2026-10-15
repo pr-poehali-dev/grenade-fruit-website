@@ -1027,7 +1027,7 @@ def handle_add_holiday(body):
     conn = get_conn()
     cur = conn.cursor()
     # Проверяем уникальность даты
-    cur.execute(f"SELECT id FROM {SCHEMA}.holidays WHERE holiday_date = %s AND school_year = %s", (holiday_date, year))
+    cur.execute(f"SELECT id FROM {SCHEMA}.holidays WHERE holiday_date = %s AND school_year = %s AND kind = %s", (holiday_date, year, kind))
     if cur.fetchone():
         conn.close()
         return err("Эта дата уже добавлена")
